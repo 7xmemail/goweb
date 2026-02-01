@@ -35,6 +35,22 @@ class Auth
         return false;
     }
 
+    public static function changePassword($username, $newPassword)
+    {
+        if (!file_exists(self::$dbFile)) {
+            return false;
+        }
+
+        $users = json_decode(file_get_contents(self::$dbFile), true);
+        if (!isset($users[$username])) {
+            return false;
+        }
+
+        $users[$username] = password_hash($newPassword, PASSWORD_DEFAULT);
+        file_put_contents(self::$dbFile, json_encode($users));
+        return true;
+    }
+
     public static function logout()
     {
         self::init();

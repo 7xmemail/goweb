@@ -19,6 +19,22 @@ class System
         return exec($command, $output, $return_var);
     }
 
+    /**
+     * Stream command output to browser
+     */
+    public static function streamExec($command)
+    {
+        // Disable output buffering
+        while (@ob_end_flush())
+            ;
+        $proc = popen("$command 2>&1", 'r');
+        while (!feof($proc)) {
+            echo fread($proc, 4096);
+            flush();
+        }
+        pclose($proc);
+    }
+
     public static function createService($appName, $binaryPath, $envVars = [], $port = 8080)
     {
         if (!preg_match(self::VALID_NAME_REGEX, $appName)) {

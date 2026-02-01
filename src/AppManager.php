@@ -23,17 +23,31 @@ class AppManager
                 continue;
             if (is_dir($this->appsDir . '/' . $dir)) {
                 $status = System::getServiceStatus($dir);
+                $metaFile = $this->appsDir . '/' . $dir . '/metadata.json';
+                $port = 8080;
+                $domain = '';
+                $email = '';
+                if (file_exists($metaFile)) {
+                    $meta = json_decode(file_get_contents($metaFile), true);
+                    $port = $meta['port'] ?? 8080;
+                    $domain = $meta['domain'] ?? '';
+                    $email = $meta['email'] ?? '';
+                }
+
                 $apps[] = [
                     'name' => $dir,
                     'status' => $status,
-                    'path' => $this->appsDir . '/' . $dir
+                    'path' => $this->appsDir . '/' . $dir,
+                    'port' => $port,
+                    'domain' => $domain,
+                    'email' => $email
                 ];
             }
         }
         return $apps;
     }
 
-    public function createApp($name, $fileUpload = null, $gitRepo = null, $port = 8080, $envVars = [])
+    public function createApp($name, $fileUpload = null, $createEmpty = false, $port = 8080, $envVars = [])
     {
         if (!preg_match(System::VALID_NAME_REGEX, $name)) {
             throw new Exception("Invalid app name");
@@ -44,11 +58,8 @@ class AppManager
             throw new Exception("App already exists");
         }
 
-        // Create directory (needs permission or sudo)
-        // Since we are PHP user, we might need to rely on System::exec with sudo for mkdir if /var/go-apps is root owned
-        // Ideally /var/go-apps is owned by www-data or a dedicated group
-        if (!mkdir($appPath, 0755, true)) {
-            // Fallback to sudo if direct mkdir fails
+        // Create directory
+        if (!@mkdir($appPath, 0755, true)) {
             System::exec("sudo mkdir -p {$appPath}");
             System::exec("sudo chown www-data:www-data {$appPath}");
         }
@@ -58,19 +69,37 @@ class AppManager
         if ($fileUpload) {
             move_uploaded_file($fileUpload['tmp_name'], $appPath . '/' . $binaryName);
             chmod($appPath . '/' . $binaryName, 0755);
-        } elseif ($gitRepo) {
-            // Git clone and build
-            System::exec("cd {$appPath} && git clone {$gitRepo} .");
-            // Assume 'go build -o app' works
-            System::exec("cd {$appPath} && /usr/local/go/bin/go build -o {$binaryName}");
+        } elseif ($createEmpty) {
+            // Empty app mode: No binary yet
+            // We just create the structure
         } else {
-            throw new Exception("No file or git repo provided");
+            throw new Exception("No file provided");
         }
 
         // Create Systemd Service
+        // Note: If empty, the service will point to a non-existent binary initially.
+        // User must upload 'app' binary later.
         System::createService($name, $appPath . '/' . $binaryName, $envVars, $port);
-        System::startService($name);
 
+        // Only start if we uploaded a file
+        if ($fileUpload) {
+            System::startService($name);
+        }
+
+        // Save Metadata
+        file_put_contents($appPath . '/metadata.json', json_encode([
+            'port' => $port,
+            'env' => $envVars,
+            'created_at' => time()
+        ]));
+
+        return true;
+    }
+
+    public function restartApp($name)
+    {
+        // Simply restart the service
+        System::restartService($name);
         return true;
     }
 
@@ -79,12 +108,87 @@ class AppManager
         if (!preg_match(System::VALID_NAME_REGEX, $name))
             throw new Exception("Invalid app name");
 
+        // 1. Get Domain from Metadata for Cleanup
+        $appPath = $this->appsDir . '/' . $name;
+        $metaFile = $appPath . '/metadata.json';
+        $domain = '';
+        if (file_exists($metaFile)) {
+            $meta = json_decode(file_get_contents($metaFile), true);
+            $domain = $meta['domain'] ?? '';
+        }
+
+        // 2. Clean Service & Process
         System::deleteService($name);
 
-        $appPath = $this->appsDir . '/' . $name;
+        // 3. Clean Nginx & SSL
+        if ($domain) {
+            // Need to require NginxManager if not already loaded, but it should be via autoload or require at top
+            require_once __DIR__ . '/NginxManager.php';
+            NginxManager::deleteConfig($domain);
+            NginxManager::deleteCert($domain);
+        }
+
+        // 4. Remove Files
         // Recursive delete
         System::exec("sudo rm -rf {$appPath}");
 
+        return true;
+    }
+
+    public function updateApp($name, $fileUpload = null, $port = 8080, $envVars = [])
+    {
+        if (!preg_match(System::VALID_NAME_REGEX, $name)) {
+            throw new Exception("Invalid app name");
+        }
+
+        $appPath = $this->appsDir . '/' . $name;
+        if (!is_dir($appPath)) {
+            throw new Exception("App not found");
+        }
+
+        try {
+            System::stopService($name);
+        } catch (Exception $e) {
+        }
+
+        if ($fileUpload) {
+            $binaryName = 'app';
+            @unlink($appPath . '/' . $binaryName);
+            if (move_uploaded_file($fileUpload['tmp_name'], $appPath . '/' . $binaryName)) {
+                chmod($appPath . '/' . $binaryName, 0755);
+            } else {
+                throw new Exception("Failed to upload binary");
+            }
+        }
+
+        $binaryName = 'app';
+        System::createService($name, $appPath . '/' . $binaryName, $envVars, $port);
+        System::startService($name);
+
+        // Update Metadata
+        file_put_contents($appPath . '/metadata.json', json_encode([
+            'port' => $port,
+            'env' => $envVars,
+            'created_at' => time()
+        ]));
+
+        return true;
+    }
+
+    public function saveMetadata($name, $data)
+    {
+        $appPath = $this->appsDir . '/' . $name;
+        if (!is_dir($appPath))
+            return false;
+
+        $metaFile = $appPath . '/metadata.json';
+        $current = [];
+        if (file_exists($metaFile)) {
+            $current = json_decode(file_get_contents($metaFile), true);
+        }
+
+        $new = array_merge($current, $data);
+        file_put_contents($metaFile, json_encode($new, JSON_PRETTY_PRINT));
         return true;
     }
 }

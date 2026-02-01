@@ -71,10 +71,32 @@ class FileManager
     {
         $path = $this->securePath($file);
         if (is_dir($path)) {
-            return rmdir($path); // Only works for empty dirs, use exec rm -rf for non-empty
+            // Use exec for recursive delete to ensure it works
+            // Check safety? securePath ensures it's inside app dir.
+            System::exec("rm -rf " . escapeshellarg($path));
+            return !is_dir($path);
         } else {
             return unlink($path);
         }
+    }
+
+    public function renameFile($old, $new)
+    {
+        // $new is just the new filename or relative path?
+        // Let's assume $new is the full relative path or just name? 
+        // User usually renames "foo.txt" to "bar.txt" in same dir.
+        // But let's support moving if they pass path. 
+        // Logic: $old = "src/foo.txt", $new = "src/bar.txt"
+
+        $oldPath = $this->securePath($old);
+        $newPath = $this->securePath($new);
+
+        if (!file_exists($oldPath))
+            throw new Exception("File not found");
+        if (file_exists($newPath))
+            throw new Exception("Destination already exists");
+
+        return rename($oldPath, $newPath);
     }
 
     public function createDirectory($dir)
