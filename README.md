@@ -16,7 +16,7 @@ A lightweight, premium control panel for managing Go applications on Linux VPS.
 2.  **Clone the Repository**:
     ```bash
     cd /var/www
-    git clone https://github.com/yourusername/your-repo-name.git panel
+    git clone https://github.com/7xmemail/goweb.git
     cd panel
     ```
 
