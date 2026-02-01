@@ -14,7 +14,7 @@ echo "Starting Installation..."
 # 2. Update System & Install Dependencies
 echo "Updating system and installing dependencies..."
 apt-get update -y
-apt-get install -y nginx php-fpm php-cli php-json php-mbstring golang certbot python3-certbot-nginx unzip jq
+apt-get install -y nginx php-fpm php-cli php-json php-mbstring golang git certbot python3-certbot-nginx unzip jq
 
 # 3. Configure Directories
 echo "Configuring directories..."
@@ -38,6 +38,7 @@ cat > "$NGINX_CONF" <<EOF
 server {
     listen 8888;
     server_name _;
+    client_max_body_size 100M;
     root $PANEL_DIR;
     index index.html index.php;
 
@@ -76,7 +77,13 @@ sed -i "s/php-fpm.sock/php$PHP_VERSION-fpm.sock/g" "$NGINX_CONF"
 
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl restart nginx
+    nginx -t && systemctl restart nginx
+
+    # Configure PHP Upload Limits
+    echo "Configuring PHP limits..."
+    echo "post_max_size = 100M" > /etc/php/$PHP_VERSION/fpm/conf.d/99-gopanel.ini
+    echo "upload_max_filesize = 100M" >> /etc/php/$PHP_VERSION/fpm/conf.d/99-gopanel.ini
+    systemctl restart php$PHP_VERSION-fpm
 
 # 5. Configuration & Security
 echo "Setting up configuration..."
@@ -123,6 +130,17 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/cp * /etc/systemd/system/go-*.service
 www-data ALL=(ALL) NOPASSWD: /usr/bin/chmod 644 /etc/systemd/system/go-*.service
 # Allow removing service files
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/systemd/system/go-*.service
+
+# Nginx Configuration Management
+# Allow copying to sites-available
+www-data ALL=(ALL) NOPASSWD: /usr/bin/cp * /etc/nginx/sites-available/*
+# Allow linking sites-enabled
+www-data ALL=(ALL) NOPASSWD: /usr/bin/ln -sf /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
+# Allow removing configs (Cleanup)
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/nginx/sites-enabled/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/nginx/sites-available/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-enabled/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-available/*
 EOF
 chmod 0440 "$SUDO_FILE"
 

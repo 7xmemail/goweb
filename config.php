@@ -1,5 +1,6 @@
 <?php
 // Global Configuration
+ob_start(); // Buffer output to catch warnings/errors before JSON
 
 // Prevent direct access to includes
 defined('ROOT_PATH') OR define('ROOT_PATH', __DIR__);
@@ -15,7 +16,7 @@ define('NGINX_SITES_ENABLED', '/etc/nginx/sites-enabled');
 define('SYSTEMD_DIR', '/etc/systemd/system');
 
 // Security
-define('AUTH_SALT', 'CHANGE_THIS_ON_INSTALL'); // Should be generated on install
+define('AUTH_SALT', 'P9YIL4DYXqhzaFOObnhw2C8fwc6AvnJh'); // Fixed local salt
 define('SESSION_LIFETIME', 3600); // 1 hour
 
 // Database (Using SQLite for simplicity, or simple JSON store)
@@ -27,7 +28,12 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 // Helper function to return JSON response
-function jsonResponse($data, $status = 200) {
+function jsonResponse($data, $status = 200)
+{
+    // Clear any previous output (warnings, notices, etc.)
+    if (ob_get_length())
+        ob_clean();
+
     header('Content-Type: application/json');
     http_response_code($status);
     echo json_encode($data);
