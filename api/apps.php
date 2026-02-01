@@ -16,14 +16,29 @@ if ($method === 'GET' && $action === 'list') {
 if ($method === 'POST' && $action === 'create') {
     // Handling multipart/form-data for uploads
     $name = $_POST['name'] ?? '';
-    $gitRepo = $_POST['git_repo'] ?? null;
+    $createEmpty = ($_POST['create_type'] ?? '') === 'empty'; // Check for explicit empty type
+    $envVars = json_decode($_POST['env_vars'] ?? '{}', true);
+    $port = $_POST['port'] ?? 8080;
+
+    $file = isset($_FILES['binary']) && $_FILES['binary']['error'] === UPLOAD_ERR_OK ? $_FILES['binary'] : null;
+
+    try {
+        $manager->createApp($name, $file, $createEmpty, $port, $envVars);
+        jsonResponse(['success' => true]);
+    } catch (Exception $e) {
+        jsonResponse(['error' => $e->getMessage()], 500);
+    }
+}
+
+if ($method === 'POST' && $action === 'update') {
+    $name = $_POST['name'] ?? '';
     $envVars = json_decode($_POST['env_vars'] ?? '{}', true);
     $port = $_POST['port'] ?? 8080;
 
     $file = isset($_FILES['binary']) ? $_FILES['binary'] : null;
 
     try {
-        $manager->createApp($name, $file, $gitRepo, $port, $envVars);
+        $manager->updateApp($name, $file, $port, $envVars);
         jsonResponse(['success' => true]);
     } catch (Exception $e) {
         jsonResponse(['error' => $e->getMessage()], 500);
@@ -40,9 +55,24 @@ if ($method === 'POST' && $action === 'control') {
             System::startService($appName);
         elseif ($command === 'stop')
             System::stopService($appName);
-        elseif ($command === 'restart')
-            System::restartService($appName);
-        elseif ($command === 'delete')
+        elseif ($command === 'restart') {
+            $stream = isset($_GET['stream']) && $_GET['stream'] == '1';
+            // If streaming, we don't return JSON immediately
+            if ($stream) {
+                header('Content-Type: text/plain');
+                header('X-Accel-Buffering: no'); // Disable Nginx buffering
+                // Disable buffering
+                ini_set('output_buffering', 'off');
+                ini_set('zlib.output_compression', false);
+                while (@ob_end_flush())
+                    ;
+
+                $manager->restartApp($appName, true);
+                exit; // End script after stream
+            } else {
+                $manager->restartApp($appName);
+            }
+        } elseif ($command === 'delete')
             $manager->deleteApp($appName);
         else
             throw new Exception("Invalid command");

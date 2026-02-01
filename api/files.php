@@ -58,6 +58,27 @@ try {
         }
     }
 
+    if ($method === 'POST' && $action === 'rename') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $old = $data['old'] ?? '';
+        $new = $data['new'] ?? '';
+        if ($fm->renameFile($old, $new)) {
+            jsonResponse(['success' => true]);
+        } else {
+            jsonResponse(['error' => 'Failed to rename'], 500);
+        }
+    }
+
+    if ($method === 'POST' && $action === 'delete') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $file = $data['file'] ?? '';
+        if ($fm->deleteFile($file)) {
+            jsonResponse(['success' => true]);
+        } else {
+            jsonResponse(['error' => 'Failed to delete'], 500);
+        }
+    }
+
 } catch (Exception $e) {
     jsonResponse(['error' => $e->getMessage()], 500);
 }

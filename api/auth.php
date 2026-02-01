@@ -27,4 +27,21 @@ if ($action === 'check') {
     jsonResponse(['loggedIn' => Auth::isLoggedIn(), 'user' => $_SESSION['user'] ?? null]);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_password') {
+    Auth::requireLogin();
+    $data = json_decode(file_get_contents('php://input'), true);
+    $newPassword = $data['new_password'] ?? '';
+
+    if (strlen($newPassword) < 2) {
+        jsonResponse(['error' => 'Password too short'], 400);
+    }
+
+    $username = $_SESSION['user'];
+    if (Auth::changePassword($username, $newPassword)) {
+        jsonResponse(['success' => true]);
+    } else {
+        jsonResponse(['error' => 'Failed to update password'], 500);
+    }
+}
+
 jsonResponse(['error' => 'Invalid action'], 400);
