@@ -141,8 +141,21 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/nginx/sites-enabled/*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/nginx/sites-available/*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-enabled/*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-available/*
+
+# Directory Management (Create Apps)
+www-data ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /var/go-apps/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/chown www-data\:www-data /var/go-apps/*
+
+# Logs
+www-data ALL=(ALL) NOPASSWD: /bin/journalctl *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
 EOF
 chmod 0440 "$SUDO_FILE"
+
+# 7. Fix Ownership
+echo "Fixing permissions..."
+chown -R www-data:www-data /var/go-apps
+chown -R www-data:www-data /var/www/panel
 
 echo "Installation Complete!"
 echo "Access the panel at http://<YOUR_IP>:8888"

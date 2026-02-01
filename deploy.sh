@@ -1,7 +1,7 @@
 #!/bin/bash
-HOST="173.212.221.22"
+HOST="167.86.92.76"
 USER="root"
-PASS="yJaCuv8G8DcCKf2RpI35"
+PASS="56778990000"
 REMOTE_DIR="/var/www/panel"
 
 echo "Deploying to $HOST..."

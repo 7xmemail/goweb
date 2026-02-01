@@ -1,42 +1,102 @@
 # Go App Control Panel
 
-A lightweight, premium control panel for managing Go applications on Linux VPS.
+A lightweight, premium control panel for managing Go applications on a Linux VPS.
 
 ## Features
-- **Deploy Apps**: Upload binaries or deploy from Git.
-- **Process Management**: Start, Stop, Restart Go apps (Systemd).
-- **File Manager**: Edit configs, upload files, manage directories.
-- **Domain & SSL**: Auto-configure Nginx and Let's Encrypt SSL.
-- **Logs**: View application logs in real-time.
+- **App Management**: Create, Start, Stop, Restart Go applications (Systemd integration).
+- **Deployment**: Manual binary upload or "Empty App" creation for easy file management.
+- **File Manager**: Edit configuration files, upload assets, and manage directories via the web UI.
+- **Domain & SSL**: Auto-configure Nginx reverse proxies and issue Let's Encrypt SSL certificates.
+- **Logs**: View application logs, access logs, and error logs in real-time.
+- **System Cleanup**: auto-removes Nginx configs and SSL certs when an app is deleted.
 
-## Installation via GitHub (Fresh VPS)
+---
 
-1.  **SSH into your VPS** (Root access required).
+## Installation Guide (Fresh VPS)
 
-2.  **Clone the Repository**:
+**Prerequisites:**
+- A VPS running **Ubuntu 20.04/22.04/24.04** or **Debian 11/12**.
+- Root access (or user with sudo).
+
+### Step 1: Transfer Files to VPS
+
+You need to get the source code onto your server. You can do this via **Git** (if hosted) or **SCP/SFTP** (manual upload).
+
+#### Option A: Manual Upload (SCP)
+If you have the code on your local computer:
+
+1.  Open your local terminal.
+2.  Navigate to the project folder.
+3.  Run the following command (replace with your VPS details):
     ```bash
-    cd /var/www
-    git clone https://github.com/7xmemail/goweb.git
-    cd panel
+    # Create directory first
+    ssh root@YOUR_VPS_IP "mkdir -p /var/www/panel"
+    
+    # Copy files
+    scp -r ./* root@YOUR_VPS_IP:/var/www/panel
     ```
 
-3.  **Run Installer**:
+#### Option B: Git Clone
+If you have pushed this code to a Git repository:
+
+```bash
+# SSH into VPS
+ssh root@YOUR_VPS_IP
+
+# Clone to /var/www/panel
+git clone https://github.com/7xmemail/goweb.git /var/www/panel
+```
+
+---
+
+### Step 2: Run the Installer
+
+Once the files are on the server:
+
+1.  **SSH into your VPS**:
     ```bash
-    chmod +x install.sh
-    sudo ./install.sh
+    ssh root@YOUR_VPS_IP
     ```
-    This script will:
-    - Install Nginx, PHP, Go, Certbot.
-    - Set up the database and permissions.
-    - Configure Nginx to serve the panel on **Port 8888**.
 
-4.  **Access the Panel**:
-    - Open your browser and go to: `http://YOUR_VPS_IP:8888`
-    - **Default Login**: `admin` / `admin`
+2.  **Navigate to the folder**:
+    ```bash
+    cd /var/www/panel
+    ```
 
-## Security Note
-- **Change Password**: Immediately change your password by editing `config/users.json` or adding a password change feature in the code.
-- **Firewall**: Ensure port 8888 is open if you have an external firewall (AWS Security Groups, etc.).
+3.  **Execute the install script**:
+    ```bash
+    I
+    ```
 
-## Security Note
-This panel executes system commands via PHP. The `install.sh` restricts these commands via `sudoers` to only specific actions (systemctl, nginx, certbot), but you should essentially treat the panel admin as a sudo user. Secure your panel with strong passwords and consider IP restrictions.
+    **What this does:**
+    -   Installs core dependencies: `nginx`, `php-fpm`, `golang`, `certbot`, `zip`, `unzip`.
+    -   Configures Nginx to serve the Panel on **Port 8888**.
+    -   Sets up directory permissions and creates a `sudoers` config for web-based system management.
+    -   Generates default admin credentials.
+
+---
+
+### Step 3: Access the Panel
+
+1.  Open your browser.
+2.  Navigate to: `http://YOUR_VPS_IP:8888`
+3.  **Default Credentials**:
+    -   **Username**: `admin`
+    -   **Password**: `admin`
+
+> [!WARNING]
+> **Security Check**:
+> 1.  **Change Password**: Immediately open `config/users.json` on the server and change the password, or use the panel settings provided.
+> 2.  **Firewall**: Ensure Port 8888 is allowed through your firewall (`ufw allow 8888`).
+
+---
+
+## How to Deploy Your First App
+
+1.  **Build Locally**: Compile your Go app for Linux (`GOOS=linux GOARCH=amd64 go build -o app main.go`).
+2.  **Create App**:
+    -   Go to Dashboard -> **New App**.
+    -   Choose **"Upload Binary"** and select your `app` file.
+    -   OR choose **"Empty App"** to create a placeholder, then use File Manager to upload files.
+3.  **Start**: Click **Start** to launch your service.
+4.  **Domain**: Click **Domain** to map a domain (e.g., `api.example.com`) and enable SSL.
