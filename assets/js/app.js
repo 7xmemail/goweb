@@ -42,9 +42,61 @@ const App = {
                 const tab = el.dataset.tab;
                 if (tab === 'dashboard') this.loadDashboard();
                 if (tab === 'apps') this.loadApps();
-                // Settings...
+                if (tab === 'dashboard') this.loadDashboard();
+                if (tab === 'apps') this.loadApps();
+                if (tab === 'settings') this.loadSettings();
             });
         });
+    },
+
+    loadSettings() {
+        const area = document.getElementById('contentArea');
+        document.getElementById('pageTitle').textContent = 'Settings';
+        area.innerHTML = `
+            <div style="max-width:500px">
+                <h3>Change Password</h3>
+                <div class="glass-panel" style="padding:1.5rem; margin-top:1rem;">
+                    <form id="changePasswordForm">
+                        <div class="form-group">
+                            <label>New Password</label>
+                            <input type="password" name="new_password" required minlength="2">
+                        </div>
+                        <button type="submit" class="btn primary full-width">Update Password</button>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('changePasswordForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const originalText = btn.textContent;
+            btn.textContent = 'Updating...';
+            btn.disabled = true;
+
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('api/auth.php?action=change_password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const json = await res.json();
+                if (json.success) {
+                    alert('Password updated successfully');
+                    e.target.reset();
+                } else {
+                    alert('Error: ' + json.error);
+                }
+            } catch (err) {
+                alert('Connection error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        };
     },
 
     setupModals() {
@@ -58,15 +110,15 @@ const App = {
         // Form Type Switch
         const typeSelect = document.getElementById('deployType');
         const binaryGroup = document.getElementById('binaryUploadGroup');
-        const gitGroup = document.getElementById('gitRepoGroup');
+        const emptyInfo = document.getElementById('emptyAppInfo');
 
         typeSelect.onchange = () => {
             if (typeSelect.value === 'binary') {
                 binaryGroup.classList.remove('hidden');
-                gitGroup.classList.add('hidden');
+                emptyInfo.classList.add('hidden');
             } else {
                 binaryGroup.classList.add('hidden');
-                gitGroup.classList.remove('hidden');
+                emptyInfo.classList.remove('hidden');
             }
         };
 
@@ -128,6 +180,12 @@ const App = {
                 el.closest('.modal').classList.remove('active');
             });
         });
+
+        // Specific close for editor
+        const closeEditBtn = document.getElementById('closeEditorBtn');
+        if (closeEditBtn) {
+            closeEditBtn.onclick = () => document.getElementById('editorModal').classList.remove('active');
+        }
     },
 
     async loadDashboard() {
@@ -175,6 +233,7 @@ const App = {
         const res = await fetch('api/apps.php?action=list');
         const data = await res.json();
         const apps = data.apps || [];
+        this.state.apps = apps; // Cache for lookup
 
         area.innerHTML = `
             <div class="app-grid">
@@ -206,49 +265,138 @@ const App = {
                     <button class="icon-btn" onclick="App.controlApp('${app.name}', 'restart')" title="Restart"><ion-icon name="refresh-outline"></ion-icon></button>
                     <button class="icon-btn" onclick="App.showLogs('${app.name}')" title="Logs"><ion-icon name="document-text-outline"></ion-icon></button>
                     <button class="icon-btn" onclick="App.openFileManager('${app.name}')" title="Files"><ion-icon name="folder-open-outline"></ion-icon></button>
+                    <button class="icon-btn" onclick="App.editAppModal('${app.name}', ${app.port || 8080})" title="Edit App"><ion-icon name="create-outline"></ion-icon></button>
                     <button class="icon-btn" onclick="App.openDomainMgr('${app.name}', ${app.port || 8080})" title="Domains"><ion-icon name="globe-outline"></ion-icon></button>
+                    <button class="icon-btn" onclick="App.openNginxEditor('${app.domain || ''}')" title="Nginx Config" ${!app.domain ? 'disabled style="opacity:0.5"' : ''}><ion-icon name="settings-outline"></ion-icon></button>
                     <button class="icon-btn" onclick="App.controlApp('${app.name}', 'delete')" title="Delete" style="color:#ef4444; border-color:#ef4444"><ion-icon name="trash-outline"></ion-icon></button>
                 </div>
             </div>
         `).join('');
     },
 
-    openDomainMgr(appName, port) {
-        // Simple domain mgr for now
-        const modal = document.getElementById('domainModal');
-        document.getElementById('domainAppPort').value = port;
-        // Pre-fill domain input with appname.com as hint just for UI
-        modal.classList.add('active');
+    async openNginxEditor(domain) {
+        if (!domain) return alert('No domain configured for this app.');
 
-        // Setup forms if not already (naively re-binding here is okay for simple prototype)
-        document.getElementById('domainForm').onsubmit = async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
+        document.getElementById('nginxModal').classList.add('active');
+        document.getElementById('nginxDomainDisplay').textContent = domain;
+        document.getElementById('nginxEditor').value = 'Loading...';
+
+        try {
+            const res = await fetch(`api/domains.php?action=read_config&domain=${domain}`);
+            const json = await res.json();
+
+            if (json.error) {
+                document.getElementById('nginxEditor').value = '# Error loading config: ' + json.error;
+            } else {
+                document.getElementById('nginxEditor').value = json.content;
+            }
+        } catch (e) {
+            document.getElementById('nginxEditor').value = '# Error connecting to server';
+        }
+
+        document.getElementById('saveNginxBtn').onclick = async () => {
+            const content = document.getElementById('nginxEditor').value;
+            const btn = document.getElementById('saveNginxBtn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Saving...';
+            btn.disabled = true;
+
             try {
-                const res = await fetch('api/domains.php?action=create', {
-                    method: 'POST', body: JSON.stringify(data)
+                const res = await fetch('api/domains.php?action=save_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domain, content })
                 });
                 const json = await res.json();
-                if (json.success) alert('Nginx Config Created! Reloading Nginx...');
-                else alert('Error: ' + json.error);
-            } catch (err) { alert('Api Error'); }
+                if (json.success) {
+                    alert('Nginx configuration saved and reloaded!');
+                    document.getElementById('nginxModal').classList.remove('active');
+                } else {
+                    alert('Error: ' + json.error);
+                }
+            } catch (e) {
+                alert('Connection error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        };
+
+        document.getElementById('closeNginxBtn').onclick = () => {
+            document.getElementById('nginxModal').classList.remove('active');
+        };
+    },
+
+    openDomainMgr(appName, port) {
+        const modal = document.getElementById('domainModal');
+        document.getElementById('domainAppPort').value = port;
+        modal.classList.add('active');
+
+        const form = document.getElementById('domainForm');
+        // Reset
+        form.querySelector('[name="domain"]').value = '';
+        document.getElementById('sslForm').querySelector('[name="email"]').value = '';
+
+        // Try to pre-fill
+        if (this.state.apps) {
+            const app = this.state.apps.find(a => a.name === appName);
+            if (app) {
+                if (app.domain) form.querySelector('[name="domain"]').value = app.domain;
+                if (app.email) document.getElementById('sslForm').querySelector('[name="email"]').value = app.email;
+            }
+        }
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            formData.append('app', appName); // Add app name
+            const data = Object.fromEntries(formData.entries());
+            this.runStreamCommand('Create Nginx Config', 'api/domains.php?action=create&stream=1', data);
         };
 
         document.getElementById('sslForm').onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
+            formData.append('app', appName); // Add app name
+            formData.append('port', port);   // Add port explicitly from closure
             const data = Object.fromEntries(formData.entries());
-            try {
-                alert('Issuing SSL... this may take a minute.');
-                const res = await fetch('api/domains.php?action=ssl', {
-                    method: 'POST', body: JSON.stringify(data)
-                });
-                const json = await res.json();
-                if (json.success) alert('SSL Certificate Issued!');
-                else alert('Error: ' + json.error);
-            } catch (err) { alert('Api Error'); }
+            this.runStreamCommand('Issue SSL', 'api/domains.php?action=ssl&stream=1', data);
         };
+    },
+
+    async runStreamCommand(title, url, data) {
+        // Show Terminal
+        const termModal = document.getElementById('termModal');
+        const termOut = document.getElementById('termOutput');
+        document.getElementById('termTitle').textContent = title;
+        termOut.textContent = 'Starting...\n';
+        termModal.classList.add('active');
+
+        // Hide previous modal if any
+        document.querySelectorAll('.modal.active').forEach(m => {
+            if (m.id !== 'termModal') m.classList.remove('active');
+        });
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const text = decoder.decode(value);
+                termOut.textContent += text;
+                termOut.scrollTop = termOut.scrollHeight;
+            }
+            termOut.textContent += '\n\n[Done]';
+        } catch (e) {
+            termOut.textContent += '\n\n[Error: ' + e + ']';
+        }
     },
 
     async showLogs(appName) {
@@ -272,6 +420,12 @@ const App = {
 
     async controlApp(name, action) {
         if (action === 'delete' && !confirm('Are you sure you want to delete ' + name + '?')) return;
+
+        if (action === 'restart') {
+            // Use streaming for restart to show build logs
+            this.runStreamCommand('Restarting ' + name, 'api/apps.php?action=control&stream=1', { name, command: 'restart' });
+            return;
+        }
 
         try {
             const res = await fetch('api/apps.php?action=control', {
@@ -320,6 +474,11 @@ const App = {
             let breadcrumb = `<div style="margin-bottom:1rem; display:flex; align-items:center; gap:0.5rem">
                 <button class="btn secondary" onclick="App.loadApps()">Back to Apps</button> 
                 <span style="color:var(--text-muted)">/ var / go-apps / ${appName} / ${path}</span>
+                <div style="margin-left:auto; display:flex; gap:0.5rem">
+                     <button class="btn primary small" onclick="App.uploadFileModal('${path}')"><ion-icon name="cloud-upload-outline"></ion-icon> Upload</button>
+                     <button class="btn secondary small" onclick="App.newFileModal('${path}')"><ion-icon name="add-outline"></ion-icon> New File</button>
+                     <button class="btn secondary small" onclick="App.newDirModal('${path}')"><ion-icon name="folder-outline"></ion-icon> New Folder</button>
+                </div>
             </div>`;
 
             let list = `
@@ -361,7 +520,10 @@ const App = {
                         <td style="color:var(--text-muted)">${f.type === 'directory' ? '-' : (f.size / 1024).toFixed(1) + ' KB'}</td>
                         <td style="color:var(--text-muted)">${new Date(f.mtime * 1000).toLocaleString()}</td>
                         <td>
-                            <button class="icon-btn" style="padding:4px;" onclick="if(confirm('Delete?')) App.deleteFile('${f.path}')">
+                            <button class="icon-btn" style="padding:4px;" title="Rename" onclick="App.renameFile('${f.path}', '${f.name}')">
+                                <ion-icon name="create-outline"></ion-icon>
+                            </button>
+                            <button class="icon-btn" style="padding:4px;" title="Delete" onclick="App.deleteFile('${f.path}')">
                                 <ion-icon name="trash-outline"></ion-icon>
                             </button>
                         </td>
@@ -393,7 +555,130 @@ const App = {
     },
 
     async deleteFile(path) {
-        // Implement delete file logic call to API
+        if (!confirm('Are you sure you want to delete ' + path + '?')) return;
+        try {
+            const res = await fetch(`api/files.php?app=${this.state.currentApp.name}&action=delete`, {
+                method: 'POST', body: JSON.stringify({ file: path })
+            });
+            const json = await res.json();
+            if (json.success) {
+                // Refresh current dir
+                const parent = path.split('/').slice(0, -1).join('/');
+                this.loadFileBrowser(parent);
+            } else {
+                alert('Delete failed');
+            }
+        } catch (e) { alert('Error deleting'); }
+    },
+
+    async renameFile(path, oldName) {
+        const newName = prompt("Enter new name:", oldName);
+        if (!newName || newName === oldName) return;
+
+        // Construct new path. path is full relative path e.g. src/foo.txt
+        const dir = path.split('/').slice(0, -1).join('/');
+        const newPath = (dir ? dir + '/' : '') + newName;
+
+        try {
+            const res = await fetch(`api/files.php?app=${this.state.currentApp.name}&action=rename`, {
+                method: 'POST', body: JSON.stringify({ old: path, new: newPath })
+            });
+            const json = await res.json();
+            if (json.success) {
+                this.loadFileBrowser(dir);
+            } else {
+                alert('Rename failed: ' + (json.error || 'Unknown'));
+            }
+        } catch (e) { alert('Error renaming'); }
+    },
+
+    editAppModal(name, port) {
+        const modal = document.getElementById('editAppModal');
+        modal.querySelector('[name="name"]').value = name;
+        modal.querySelector('[name="port"]').value = port;
+        modal.classList.add('active');
+
+        document.getElementById('editAppForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const originalText = btn.textContent;
+            btn.textContent = 'Updating...';
+            btn.disabled = true;
+
+            const formData = new FormData(e.target);
+            try {
+                const res = await fetch('api/apps.php?action=update', {
+                    method: 'POST',
+                    body: formData
+                });
+                const json = await res.json();
+                if (json.success) {
+                    modal.classList.remove('active');
+                    this.loadApps();
+                } else {
+                    alert('Error: ' + json.error);
+                }
+            } catch (err) {
+                alert('Connection error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        };
+    },
+
+    uploadFileModal(path) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = async () => {
+            if (input.files.length === 0) return;
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('path', path); // Directory inside app
+
+            // Show a simple loading toast/alert
+            const btn = document.querySelector('.btn.primary.small'); // bit hacky
+            if (btn) btn.textContent = 'Uploading...';
+
+            try {
+                const res = await fetch(`api/files.php?app=${this.state.currentApp.name}&action=upload`, {
+                    method: 'POST', body: formData
+                });
+                const json = await res.json();
+                if (json.success) {
+                    this.loadFileBrowser(path); // Refresh
+                } else {
+                    alert('Upload failed');
+                }
+            } catch (e) { alert('Error uploading'); }
+        };
+        input.click();
+    },
+
+    newFileModal(path) {
+        const name = prompt("Enter file name:");
+        if (!name) return;
+        this.editFile((path ? path + '/' : '') + name); // Open editor for new file
+    },
+
+    newDirModal(path) {
+        const name = prompt("Enter directory name:");
+        if (!name) return;
+        this.createDir(path, name);
+    },
+
+    async createDir(path, name) {
+        const fullPath = (path ? path + '/' : '') + name;
+        try {
+            const res = await fetch(`api/files.php?app=${this.state.currentApp.name}&action=mkdir`, {
+                method: 'POST',
+                body: JSON.stringify({ dir: fullPath })
+            });
+            const json = await res.json();
+            if (json.success) this.loadFileBrowser(path);
+            else alert('Failed to create folder');
+        } catch (e) { alert('Error'); }
     }
 };
 
