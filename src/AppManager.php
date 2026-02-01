@@ -96,10 +96,121 @@ class AppManager
         return true;
     }
 
-    public function restartApp($name)
+    public function restartApp($name, $stream = false)
     {
-        // Simply restart the service
+        if (!preg_match(System::VALID_NAME_REGEX, $name)) {
+            throw new Exception("Invalid app name");
+        }
+
+        $appPath = $this->appsDir . '/' . $name;
+        if (!is_dir($appPath))
+            throw new Exception("App not found");
+
+        $binaryName = 'app';
+
+        // Check for main.go to rebuild (Support for source uploads)
+        if (file_exists($appPath . '/main.go')) {
+            if ($stream) {
+                echo "Stopping service to release binary...\n";
+                flush();
+            }
+            // Ignore stop errors
+            try {
+                System::stopService($name);
+            } catch (Exception $e) {
+            }
+
+            // Force remove old binary to ensure we don't run stale code
+            if (file_exists($appPath . '/' . $binaryName)) {
+                if ($stream) {
+                    echo "Removing old binary to force rebuild...\n";
+                    flush();
+                }
+                @unlink($appPath . '/' . $binaryName);
+            }
+
+            // Setup Go Env with writable cache and GOPATH
+            // Use /tmp which is writable by www-data
+            $goEnv = "export GOPATH=/tmp/go && export GOCACHE=/tmp/go-build-cache && export GOMODCACHE=/tmp/go-mod-cache && mkdir -p /tmp/go /tmp/go-build-cache /tmp/go-mod-cache";
+
+            // Check for go.mod
+            if (!file_exists($appPath . '/go.mod')) {
+                if ($stream) {
+                    echo "Initializing Go module...\n";
+                    flush();
+                }
+                // Initialize go.mod if missing
+                System::streamExec("{$goEnv} && cd {$appPath} && /usr/bin/go mod init {$name}");
+            }
+
+            // Explicitly download deps
+            if ($stream) {
+                echo "Resolving dependencies (go get)...\n";
+                flush();
+                System::streamExec("{$goEnv} && cd {$appPath} && /usr/bin/go get -d ./...");
+            } else {
+                System::exec("{$goEnv} && cd {$appPath} && /usr/bin/go get -d ./...");
+            }
+
+            // Tidy deps
+            if ($stream) {
+                echo "Tidying dependencies...\n";
+                flush();
+                System::streamExec("{$goEnv} && cd {$appPath} && /usr/bin/go mod tidy");
+            } else {
+                System::exec("{$goEnv} && cd {$appPath} && /usr/bin/go mod tidy");
+            }
+
+            if ($stream) {
+                echo "Building application... (this may take a moment)\n";
+                flush();
+            }
+
+            $cmd = "{$goEnv} && cd {$appPath} && /usr/bin/go build -o {$binaryName} 2>&1";
+
+            $buildSuccess = false;
+            if ($stream) {
+                System::streamExec($cmd);
+                if (file_exists($appPath . '/' . $binaryName)) {
+                    chmod($appPath . '/' . $binaryName, 0755);
+                    echo "Build successful.\n";
+                    $buildSuccess = true;
+                } else {
+                    echo "Build FAILED: Binary not created.\n";
+                }
+                flush();
+            } else {
+                $output = [];
+                $returnVar = 0;
+                System::exec($cmd, $output, $returnVar);
+                if ($returnVar === 0 && file_exists($appPath . '/' . $binaryName)) {
+                    chmod($appPath . '/' . $binaryName, 0755);
+                    $buildSuccess = true;
+                } else {
+                    throw new Exception("Build failed: " . implode("\n", $output));
+                }
+            }
+
+            // Abort if build failed
+            if (!$buildSuccess) {
+                if ($stream) {
+                    echo "Aborting restart due to build failure.\n";
+                    flush();
+                }
+                return false;
+            }
+        }
+
+        if ($stream) {
+            echo "Restarting Systemd service...\n";
+            flush();
+        }
         System::restartService($name);
+
+        if ($stream) {
+            echo "App restarted successfully.\n";
+            flush();
+        }
         return true;
     }
 
