@@ -2,6 +2,7 @@
 // Main Application Logic
 const qs = (s) => document.querySelector(s);
 const qsa = (s) => document.querySelectorAll(s);
+const loadingMarkup = (label = 'Loading…') => `<div class="loading-state"><span class="loading-spinner"></span><span>${label}</span></div>`;
 
 const App = {
     state: {
@@ -11,10 +12,20 @@ const App = {
     },
 
     async init() {
+        this.refreshIcons();
         await this.checkAuth();
         this.setupNavigation();
         this.setupModals();
         this.loadDashboard();
+    },
+
+    refreshIcons() {
+        if (window.lucide) window.lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
+    },
+
+    setPage(title, description) {
+        document.getElementById('pageTitle').textContent = title;
+        document.getElementById('pageDescription').textContent = description;
     },
 
     async checkAuth() {
@@ -25,6 +36,7 @@ const App = {
         } else {
             this.state.user = data.user;
             document.getElementById('usernameDisplay').textContent = data.user;
+            document.getElementById('userAvatar').textContent = data.user.charAt(0).toUpperCase();
         }
 
         document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -34,14 +46,17 @@ const App = {
     },
 
     setupNavigation() {
+        const closeSidebar = () => document.body.classList.remove('sidebar-open');
+        document.getElementById('menuToggle').onclick = () => document.body.classList.add('sidebar-open');
+        document.getElementById('sidebarClose').onclick = closeSidebar;
+        document.getElementById('sidebarBackdrop').onclick = closeSidebar;
         qsa('.nav-item').forEach(el => {
             el.addEventListener('click', (e) => {
                 e.preventDefault();
                 qsa('.nav-item').forEach(n => n.classList.remove('active'));
                 el.classList.add('active');
+                closeSidebar();
                 const tab = el.dataset.tab;
-                if (tab === 'dashboard') this.loadDashboard();
-                if (tab === 'apps') this.loadApps();
                 if (tab === 'dashboard') this.loadDashboard();
                 if (tab === 'apps') this.loadApps();
                 if (tab === 'settings') this.loadSettings();
@@ -51,21 +66,27 @@ const App = {
 
     loadSettings() {
         const area = document.getElementById('contentArea');
-        document.getElementById('pageTitle').textContent = 'Settings';
+        this.setPage('Settings', 'Manage account access and panel preferences.');
         area.innerHTML = `
-            <div style="max-width:500px">
-                <h3>Change Password</h3>
-                <div class="glass-panel" style="padding:1.5rem; margin-top:1rem;">
+            <div class="settings-layout">
+                <div class="panel">
+                    <div class="panel-heading">
+                        <span class="stat-icon"><i data-lucide="key-round"></i></span>
+                        <div><h3>Change password</h3><p>Choose a unique password to protect server access.</p></div>
+                    </div>
+                    <div class="panel-body">
                     <form id="changePasswordForm">
                         <div class="form-group">
                             <label>New Password</label>
-                            <input type="password" name="new_password" required minlength="2">
+                            <input type="password" name="new_password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
                         </div>
-                        <button type="submit" class="btn primary full-width">Update Password</button>
+                        <button type="submit" class="btn primary"><i data-lucide="shield-check"></i>Update password</button>
                     </form>
+                    </div>
                 </div>
             </div>
         `;
+        this.refreshIcons();
 
         document.getElementById('changePasswordForm').onsubmit = async (e) => {
             e.preventDefault();
@@ -180,6 +201,15 @@ const App = {
                 el.closest('.modal').classList.remove('active');
             });
         });
+        qsa('.modal').forEach(el => el.addEventListener('click', (event) => {
+            if (event.target === el) el.classList.remove('active');
+        }));
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                document.body.classList.remove('sidebar-open');
+                qsa('.modal.active').forEach(el => el.classList.remove('active'));
+            }
+        });
 
         // Specific close for editor
         const closeEditBtn = document.getElementById('closeEditorBtn');
@@ -190,8 +220,8 @@ const App = {
 
     async loadDashboard() {
         const area = document.getElementById('contentArea');
-        document.getElementById('pageTitle').textContent = 'Dashboard';
-        area.innerHTML = '<div class="loading-spinner">Loading...</div>';
+        this.setPage('Overview', 'Monitor and manage your server applications.');
+        area.innerHTML = loadingMarkup('Loading server overview…');
 
         // Fetch Apps
         const res = await fetch('api/apps.php?action=list');
@@ -199,76 +229,77 @@ const App = {
         const apps = data.apps || [];
 
         const activeCount = apps.filter(a => a.status === 'active').length;
+        document.getElementById('appCount').textContent = apps.length;
 
         area.innerHTML = `
             <div class="quick-stats">
                 <div class="stat-card">
-                    <div class="stat-label">Total Apps</div>
-                    <div class="stat-value">${apps.length}</div>
+                    <div class="stat-top"><span class="stat-label">Total applications</span><span class="stat-icon"><i data-lucide="boxes"></i></span></div>
+                    <div class="stat-value">${apps.length}</div><div class="stat-meta">Configured on this server</div>
                 </div>
                  <div class="stat-card">
-                    <div class="stat-label">Running</div>
-                    <div class="stat-value" style="color:var(--primary)">${activeCount}</div>
+                    <div class="stat-top"><span class="stat-label">Running</span><span class="stat-icon success"><i data-lucide="activity"></i></span></div>
+                    <div class="stat-value">${activeCount}</div><div class="stat-meta">${apps.length ? Math.round(activeCount / apps.length * 100) : 0}% of applications online</div>
                 </div>
                  <div class="stat-card">
-                    <div class="stat-label">Server Status</div>
-                    <div class="stat-value" style="color:#34d399">Online</div>
+                    <div class="stat-top"><span class="stat-label">Server status</span><span class="stat-icon neutral"><i data-lucide="server"></i></span></div>
+                    <div class="stat-value">Online</div><div class="stat-meta">System is operational</div>
                 </div>
             </div>
-            
-            <h3>Running Applications</h3>
-            <div class="app-grid" style="margin-top:1rem;">
+            <div class="section-header"><div><h2>Running applications</h2><p>Services currently accepting traffic.</p></div></div>
+            <div class="app-grid">
                 ${this.renderAppCards(apps.filter(a => a.status === 'active'))}
             </div>
         `;
 
+        this.refreshIcons();
         this.bindAppActions();
     },
 
     async loadApps() {
         const area = document.getElementById('contentArea');
-        document.getElementById('pageTitle').textContent = 'Applications';
-        area.innerHTML = '<div class="loading-spinner">Loading...</div>';
+        this.setPage('Applications', 'Deploy, configure, and operate your Go services.');
+        area.innerHTML = loadingMarkup('Loading applications…');
 
         const res = await fetch('api/apps.php?action=list');
         const data = await res.json();
         const apps = data.apps || [];
         this.state.apps = apps; // Cache for lookup
+        document.getElementById('appCount').textContent = apps.length;
 
         area.innerHTML = `
+            <div class="section-header"><div><h2>All applications</h2><p>${apps.length} service${apps.length === 1 ? '' : 's'} configured on this server.</p></div></div>
             <div class="app-grid">
                 ${this.renderAppCards(apps)}
             </div>
         `;
 
+        this.refreshIcons();
         this.bindAppActions();
     },
 
     renderAppCards(apps) {
-        if (apps.length === 0) return '<p style="color:var(--text-muted)">No applications found.</p>';
+        if (apps.length === 0) return `<div class="empty-state"><span class="empty-icon"><i data-lucide="package-plus"></i></span><h3>No applications yet</h3><p>Deploy your first Go service to start managing it from this workspace.</p></div>`;
 
         return apps.map(app => `
             <div class="app-card" data-name="${app.name}">
-                <div class="app-header">
-                    <strong>${app.name}</strong>
+                <div class="app-card-body"><div class="app-header">
+                    <div class="app-title"><span class="app-title-icon"><i data-lucide="box"></i></span><span class="app-title-text"><strong>${app.name}</strong><small>Go application</small></span></div>
                     <span class="status-badge ${app.status === 'active' ? 'status-active' : 'status-inactive'}">
                         ${app.status || 'unknown'}
                     </span>
                 </div>
-                <div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:0.5rem;">
-                    Port: ${app.port || '8080'} <br>
-                    Path: ${app.path}
-                </div>
+                <dl class="app-metadata"><dt>Port</dt><dd>${app.port || '8080'}</dd><dt>Path</dt><dd title="${app.path}">${app.path}</dd>${app.domain ? `<dt>Domain</dt><dd>${app.domain}</dd>` : ''}</dl></div>
                 <div class="app-actions">
-                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'start')" title="Start"><ion-icon name="play-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'stop')" title="Stop"><ion-icon name="square-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'restart')" title="Restart"><ion-icon name="refresh-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.showLogs('${app.name}')" title="Logs"><ion-icon name="document-text-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.openFileManager('${app.name}')" title="Files"><ion-icon name="folder-open-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.editAppModal('${app.name}', ${app.port || 8080})" title="Edit App"><ion-icon name="create-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.openDomainMgr('${app.name}', ${app.port || 8080})" title="Domains"><ion-icon name="globe-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.openNginxEditor('${app.domain || ''}')" title="Nginx Config" ${!app.domain ? 'disabled style="opacity:0.5"' : ''}><ion-icon name="settings-outline"></ion-icon></button>
-                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'delete')" title="Delete" style="color:#ef4444; border-color:#ef4444"><ion-icon name="trash-outline"></ion-icon></button>
+                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'start')" title="Start"><i data-lucide="play"></i></button>
+                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'stop')" title="Stop"><i data-lucide="square"></i></button>
+                    <button class="icon-btn" onclick="App.controlApp('${app.name}', 'restart')" title="Restart"><i data-lucide="rotate-cw"></i></button>
+                    <button class="icon-btn" onclick="App.showLogs('${app.name}')" title="View logs"><i data-lucide="scroll-text"></i></button>
+                    <button class="icon-btn" onclick="App.openFileManager('${app.name}')" title="Manage files"><i data-lucide="folder-open"></i></button>
+                    <button class="icon-btn" onclick="App.editAppModal('${app.name}', ${app.port || 8080})" title="Edit application"><i data-lucide="sliders-horizontal"></i></button>
+                    <button class="icon-btn" onclick="App.openDomainMgr('${app.name}', ${app.port || 8080})" title="Domain and SSL"><i data-lucide="globe-2"></i></button>
+                    <button class="icon-btn" onclick="App.openNginxEditor('${app.domain || ''}')" title="Nginx configuration" ${!app.domain ? 'disabled' : ''}><i data-lucide="file-cog"></i></button>
+                    <button class="icon-btn danger" onclick="App.controlApp('${app.name}', 'delete')" title="Delete application"><i data-lucide="trash-2"></i></button>
                 </div>
             </div>
         `).join('');
@@ -455,8 +486,8 @@ const App = {
     async openFileManager(appName) {
         this.state.currentApp = { name: appName };
         const area = document.getElementById('contentArea');
-        document.getElementById('pageTitle').textContent = `Files: ${appName}`;
-        area.innerHTML = '<div class="loading-spinner">Loading Files...</div>';
+        this.setPage('File manager', `Browse and edit files for ${appName}.`);
+        area.innerHTML = loadingMarkup('Loading files…');
 
         await this.loadFileBrowser('');
     },
@@ -471,24 +502,21 @@ const App = {
             const files = data.files || [];
 
             // Build Breadcrumb
-            let breadcrumb = `<div style="margin-bottom:1rem; display:flex; align-items:center; gap:0.5rem">
-                <button class="btn secondary" onclick="App.loadApps()">Back to Apps</button> 
-                <span style="color:var(--text-muted)">/ var / go-apps / ${appName} / ${path}</span>
-                <div style="margin-left:auto; display:flex; gap:0.5rem">
-                     <button class="btn primary small" onclick="App.uploadFileModal('${path}')"><ion-icon name="cloud-upload-outline"></ion-icon> Upload</button>
-                     <button class="btn secondary small" onclick="App.newFileModal('${path}')"><ion-icon name="add-outline"></ion-icon> New File</button>
-                     <button class="btn secondary small" onclick="App.newDirModal('${path}')"><ion-icon name="folder-outline"></ion-icon> New Folder</button>
+            let breadcrumb = `<div class="file-toolbar">
+                <button class="btn secondary small" onclick="App.loadApps()"><i data-lucide="arrow-left"></i>Applications</button>
+                <span class="file-path">/var/go-apps/${appName}/${path}</span>
+                <div class="file-actions">
+                     <button class="btn primary small" onclick="App.uploadFileModal('${path}')"><i data-lucide="upload-cloud"></i>Upload</button>
+                     <button class="btn secondary small" onclick="App.newFileModal('${path}')"><i data-lucide="file-plus-2"></i>New file</button>
+                     <button class="btn secondary small" onclick="App.newDirModal('${path}')"><i data-lucide="folder-plus"></i>New folder</button>
                 </div>
             </div>`;
 
             let list = `
-                <table style="width:100%; text-align:left; border-collapse:collapse;">
+                <div class="table-wrap"><table class="file-table">
                     <thead>
-                        <tr style="border-bottom:1px solid var(--border); color:var(--text-muted)">
-                            <th style="padding:0.5rem">Name</th>
-                            <th style="padding:0.5rem">Size</th>
-                            <th style="padding:0.5rem">Modified</th>
-                            <th style="padding:0.5rem">Action</th>
+                        <tr>
+                            <th>Name</th><th>Size</th><th>Modified</th><th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -497,8 +525,8 @@ const App = {
             if (path !== '') {
                 const parent = path.split('/').slice(0, -1).join('/');
                 list += `
-                    <tr style="border-bottom:1px solid var(--border); cursor:pointer" onclick="App.loadFileBrowser('${parent}')">
-                        <td style="padding:0.75rem"><ion-icon name="arrow-back-outline"></ion-icon> ..</td>
+                    <tr onclick="App.loadFileBrowser('${parent}')">
+                        <td><span class="file-name"><i data-lucide="corner-left-up"></i>..</span></td>
                         <td>-</td>
                         <td>-</td>
                         <td></td>
@@ -507,33 +535,32 @@ const App = {
             }
 
             files.forEach(f => {
-                const icon = f.type === 'directory' ? 'folder' : 'document';
+                const icon = f.type === 'directory' ? 'folder' : 'file';
                 const clickAction = f.type === 'directory'
                     ? `App.loadFileBrowser('${f.path}')`
                     : `App.editFile('${f.path}')`;
 
                 list += `
-                    <tr style="border-bottom:1px solid var(--border);">
-                        <td style="padding:0.75rem; display:flex; align-items:center; gap:0.5rem; cursor:pointer;" onclick="${clickAction}">
-                             <ion-icon name="${icon}-outline"></ion-icon> ${f.name}
-                        </td>
-                        <td style="color:var(--text-muted)">${f.type === 'directory' ? '-' : (f.size / 1024).toFixed(1) + ' KB'}</td>
-                        <td style="color:var(--text-muted)">${new Date(f.mtime * 1000).toLocaleString()}</td>
-                        <td>
-                            <button class="icon-btn" style="padding:4px;" title="Rename" onclick="App.renameFile('${f.path}', '${f.name}')">
-                                <ion-icon name="create-outline"></ion-icon>
+                    <tr>
+                        <td onclick="${clickAction}"><span class="file-name"><i data-lucide="${icon}"></i>${f.name}</span></td>
+                        <td>${f.type === 'directory' ? '—' : (f.size / 1024).toFixed(1) + ' KB'}</td>
+                        <td>${new Date(f.mtime * 1000).toLocaleString()}</td>
+                        <td><span class="table-actions">
+                            <button class="icon-btn" title="Rename" onclick="App.renameFile('${f.path}', '${f.name}')">
+                                <i data-lucide="pencil"></i>
                             </button>
-                            <button class="icon-btn" style="padding:4px;" title="Delete" onclick="App.deleteFile('${f.path}')">
-                                <ion-icon name="trash-outline"></ion-icon>
+                            <button class="icon-btn danger" title="Delete" onclick="App.deleteFile('${f.path}')">
+                                <i data-lucide="trash-2"></i>
                             </button>
-                        </td>
+                        </span></td>
                     </tr>
                 `;
             });
 
-            list += '</tbody></table>';
+            list += '</tbody></table></div>';
 
             area.innerHTML = breadcrumb + list;
+            this.refreshIcons();
 
         } catch (e) {
             area.innerHTML = '<div class="error-text">Failed to load files</div>';
@@ -595,6 +622,7 @@ const App = {
     editAppModal(name, port) {
         const modal = document.getElementById('editAppModal');
         modal.querySelector('[name="name"]').value = name;
+        modal.querySelector('[name="name_display"]').value = name;
         modal.querySelector('[name="port"]').value = port;
         modal.classList.add('active');
 

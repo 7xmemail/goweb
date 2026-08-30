@@ -4,56 +4,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GoPanel Dashboard</title>
-    <link rel="stylesheet" href="assets/css/style.css?v=light5">
+    <meta name="theme-color" content="#0b1020">
+    <title>goWeb — Server Control Panel</title>
+    <link rel="stylesheet" href="assets/css/style.css?v=pro1">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Ionicons for icons -->
-    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
 
 <body>
     <div class="app-container">
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="logo">
-                <div class="logo-icon">GO</div>
-                <span>GoPanel</span>
+                <div class="logo-icon"><i data-lucide="layers-3"></i></div>
+                <div class="brand-copy"><span>goWeb</span><small>Control panel</small></div>
+                <button class="icon-btn sidebar-close" id="sidebarClose" aria-label="Close navigation"><i data-lucide="x"></i></button>
             </div>
+            <div class="nav-label">Workspace</div>
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-tab="dashboard">
-                    <ion-icon name="grid-outline"></ion-icon> Dashboard
+                    <i data-lucide="layout-dashboard"></i><span>Overview</span>
                 </a>
                 <a href="#" class="nav-item" data-tab="apps">
-                    <ion-icon name="apps-outline"></ion-icon> Applications
+                    <i data-lucide="boxes"></i><span>Applications</span><span class="nav-count" id="appCount">—</span>
                 </a>
                 <a href="#" class="nav-item" data-tab="settings">
-                    <ion-icon name="settings-outline"></ion-icon> Settings
+                    <i data-lucide="settings-2"></i><span>Settings</span>
                 </a>
             </nav>
+            <div class="server-card">
+                <span class="status-dot"></span>
+                <div><strong>Server online</strong><small>All systems operational</small></div>
+            </div>
             <div class="user-profile">
+                <div class="avatar" id="userAvatar">A</div>
                 <div class="user-info">
                     <span id="usernameDisplay">Admin</span>
                     <small>Administrator</small>
                 </div>
-                <button id="logoutBtn" class="icon-btn"><ion-icon name="log-out-outline"></ion-icon></button>
+                <button id="logoutBtn" class="icon-btn" title="Sign out" aria-label="Sign out"><i data-lucide="log-out"></i></button>
             </div>
         </aside>
+        <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close navigation"></button>
 
         <!-- Main Content -->
         <main class="main-content">
             <header class="top-bar">
-                <h2 id="pageTitle">Dashboard</h2>
+                <div class="page-heading">
+                    <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Open navigation"><i data-lucide="menu"></i></button>
+                    <div><h1 id="pageTitle">Overview</h1><p id="pageDescription">Monitor and manage your server applications.</p></div>
+                </div>
                 <div class="actions">
                     <button class="btn primary" id="newAppBtn">
-                        <ion-icon name="add-outline"></ion-icon> New App
+                        <i data-lucide="plus"></i><span>New application</span>
                     </button>
                 </div>
             </header>
 
             <div id="contentArea" class="content-area">
                 <!-- Dynamic Content Loaded Here -->
-                <div class="loading-spinner"></div>
+                <div class="loading-state"><span class="loading-spinner"></span><span>Loading workspace…</span></div>
             </div>
         </main>
     </div>
@@ -62,14 +72,15 @@
     <div class="modal" id="appModal">
         <div class="modal-content glass-panel">
             <div class="modal-header">
-                <h3>New Application</h3>
-                <button class="close-modal">&times;</button>
+                <div><span class="eyebrow">Deployment</span><h3>New application</h3></div>
+                <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body">
                 <form id="createAppForm">
                     <div class="form-group">
-                        <label>App Name</label>
+                        <label>Application name</label>
                         <input type="text" name="name" required placeholder="my-go-service">
+                        <small class="field-hint">Use lowercase letters, numbers, and hyphens.</small>
                     </div>
                     <div class="form-group">
                         <label>Deployment Type</label>
@@ -81,13 +92,13 @@
                     <div class="form-group" id="binaryUploadGroup">
                         <label>Binary File</label>
                         <div class="file-drop-zone">
-                            <p>Drag & Drop or Click to Upload</p>
+                            <i data-lucide="upload-cloud"></i><p><strong>Choose a binary</strong><span>or drop it here</span></p>
                             <input type="file" name="binary">
                         </div>
                     </div>
                     <!-- Empty App Info -->
                     <div class="form-group hidden" id="emptyAppInfo">
-                        <p style="color:var(--text-muted); font-size:0.9rem;">
+                        <p class="field-hint">
                             Creates a folder and service. You must upload your binary ('app') later via the File
                             Manager.
                         </p>
@@ -96,7 +107,7 @@
                         <label>Port</label>
                         <input type="number" name="port" value="8080">
                     </div>
-                    <button type="submit" class="btn primary full-width">Deploy App</button>
+                    <button type="submit" class="btn primary full-width"><i data-lucide="rocket"></i>Deploy application</button>
                 </form>
             </div>
         </div>
@@ -106,8 +117,8 @@
     <div class="modal" id="editAppModal">
         <div class="modal-content glass-panel">
             <div class="modal-header">
-                <h3>Edit Application</h3>
-                <button class="close-modal">&times;</button>
+                <div><span class="eyebrow">Configuration</span><h3>Edit application</h3></div>
+                <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body">
                 <form id="editAppForm">
@@ -119,7 +130,7 @@
                     <div class="form-group">
                         <label>Update Binary (Optional)</label>
                         <div class="file-drop-zone">
-                            <p>Select new binary to replace</p>
+                            <i data-lucide="upload-cloud"></i><p><strong>Select a new binary</strong><span>Leave empty to keep the current build</span></p>
                             <input type="file" name="binary">
                         </div>
                     </div>
@@ -137,8 +148,8 @@
     <div class="modal" id="domainModal">
         <div class="modal-content glass-panel">
             <div class="modal-header">
-                <h3>Domain Management</h3>
-                <button class="close-modal">&times;</button>
+                <div><span class="eyebrow">Networking</span><h3>Domain & SSL</h3></div>
+                <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body">
                 <form id="domainForm">
@@ -147,13 +158,11 @@
                         <label>Domain Name</label>
                         <input type="text" name="domain" required placeholder="app.example.com">
                     </div>
-                    <button type="submit" class="btn primary full-width">Generate Nginx Config</button>
+                    <button type="submit" class="btn primary full-width"><i data-lucide="globe-2"></i>Configure domain</button>
                 </form>
 
-                <hr style="margin: 1.5rem 0; border-color: var(--border);">
-
-                <h4>SSL (Let's Encrypt)</h4>
-                <form id="sslForm" style="margin-top:1rem;">
+                <div class="section-divider"><span>SSL certificate</span></div>
+                <form id="sslForm">
                     <div class="form-group">
                         <label>Domain</label>
                         <input type="text" name="domain" required placeholder="app.example.com">
@@ -162,7 +171,7 @@
                         <label>Email</label>
                         <input type="email" name="email" required placeholder="admin@example.com">
                     </div>
-                    <button type="submit" class="btn secondary full-width">Issue SSL Certificate</button>
+                    <button type="submit" class="btn secondary full-width"><i data-lucide="shield-check"></i>Issue SSL certificate</button>
                 </form>
             </div>
         </div>
@@ -189,7 +198,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="termTitle">Command Output</h3>
-                <button class="close-modal">&times;</button>
+                <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body">
                 <pre id="termOutput"></pre>
@@ -202,7 +211,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="logsTitle">Logs</h3>
-                <button class="close-modal">&times;</button>
+                <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body no-padding">
                 <pre id="logsVal"></pre>
@@ -226,7 +235,7 @@
         </div>
     </div>
 
-    <script type="module" src="assets/js/app.js"></script>
+    <script src="assets/js/app.js?v=pro1"></script>
 </body>
 
 </html>
