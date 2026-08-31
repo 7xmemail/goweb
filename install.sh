@@ -29,7 +29,7 @@ fi
 
 mkdir -p "$APPS_DIR"
 chown -R www-data:www-data "$APPS_DIR"
-chown -R www-data:www-data "$PANEL_DIR"
+chown -R root:www-data "$PANEL_DIR"
 
 # 4. Configure Nginx
 echo "Configuring Nginx..."
@@ -45,6 +45,11 @@ server {
     location / {
         try_files \$uri \$uri/ =404;
     }
+
+    location ^~ /api/debug_ {
+        return 404;
+    }
+    location = /api/test.php { return 404; }
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
@@ -68,6 +73,10 @@ server {
         deny all;
         return 403;
     }
+    location ~ ^/(install\.sh|README\.md|\.git) {
+        deny all;
+        return 404;
+    }
 }
 EOF
 
@@ -89,12 +98,19 @@ rm -f /etc/nginx/sites-enabled/default
 echo "Setting up configuration..."
 CONFIG_FILE="$PANEL_DIR/config.php"
 USERS_FILE="$PANEL_DIR/config/users.json"
+SETTINGS_FILE="$PANEL_DIR/config/settings.json"
 
 # Implement Auth Salt
 SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
 if grep -q "CHANGE_THIS_ON_INSTALL" "$CONFIG_FILE"; then
     sed -i "s/CHANGE_THIS_ON_INSTALL/$SALT/" "$CONFIG_FILE"
 fi
+
+if [ ! -f "$SETTINGS_FILE" ]; then
+    echo '{"app_base_domain":"","ssl_email":""}' > "$SETTINGS_FILE"
+fi
+chown www-data:www-data "$SETTINGS_FILE"
+chmod 0660 "$SETTINGS_FILE"
 
 # Create Default User if not exists
 if [ ! -f "$USERS_FILE" ]; then
@@ -117,7 +133,7 @@ SUDO_FILE="/etc/sudoers.d/gopanel"
 cat > "$SUDO_FILE" <<EOF
 # Systemctl
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl start go-*, /bin/systemctl stop go-*, /bin/systemctl restart go-*, /bin/systemctl status go-*
-www-data ALL=(ALL) NOPASSWD: /bin/systemctl enable go-*, /bin/systemctl disable go-*, /bin/systemctl daemon-reload
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl enable go-*, /bin/systemctl disable go-*, /bin/systemctl reset-failed go-*, /bin/systemctl daemon-reload
 
 # Nginx & Certbot
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t, /usr/sbin/nginx -s reload
@@ -134,6 +150,8 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/rm /etc/systemd/system/go-*.service
 # Nginx Configuration Management
 # Allow copying to sites-available
 www-data ALL=(ALL) NOPASSWD: /usr/bin/cp * /etc/nginx/sites-available/*
+# Allow the panel editor to read only managed Nginx site files
+www-data ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/nginx/sites-available/*
 # Allow linking sites-enabled
 www-data ALL=(ALL) NOPASSWD: /usr/bin/ln -sf /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
 # Allow removing configs (Cleanup)
@@ -155,7 +173,12 @@ chmod 0440 "$SUDO_FILE"
 # 7. Fix Ownership
 echo "Fixing permissions..."
 chown -R www-data:www-data /var/go-apps
-chown -R www-data:www-data /var/www/panel
+chown -R root:www-data "$PANEL_DIR"
+find "$PANEL_DIR" -type d -exec chmod 0750 {} \;
+find "$PANEL_DIR" -type f -exec chmod 0640 {} \;
+chmod 0750 "$PANEL_DIR/install.sh"
+chown www-data:www-data "$USERS_FILE"
+chmod 0660 "$USERS_FILE"
 
 echo "Installation Complete!"
 echo "Access the panel at http://<YOUR_IP>:8888"

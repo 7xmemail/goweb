@@ -16,15 +16,15 @@ define('NGINX_SITES_ENABLED', '/etc/nginx/sites-enabled');
 define('SYSTEMD_DIR', '/etc/systemd/system');
 
 // Security
-define('AUTH_SALT', 'P9YIL4DYXqhzaFOObnhw2C8fwc6AvnJh'); // Fixed local salt
+define('AUTH_SALT', 'CHANGE_THIS_ON_INSTALL');
 define('SESSION_LIFETIME', 3600); // 1 hour
 
 // Database (Using SQLite for simplicity, or simple JSON store)
 define('DB_PATH', ROOT_PATH . '/config/data.db');
 
-// Enable Error Reporting for Dev (Disable in Prod)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+// Log errors server-side without leaking paths or internals to clients.
+ini_set('display_errors', 0);
+ini_set('display_startup_errors', 0);
 error_reporting(E_ALL);
 
 // Helper function to return JSON response

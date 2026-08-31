@@ -4,6 +4,11 @@ require_once __DIR__ . '/System.php';
 class NginxManager
 {
 
+    public static function configExists($domain)
+    {
+        return is_file(NGINX_SITES_AVAILABLE . '/' . $domain) || is_link(NGINX_SITES_ENABLED . '/' . $domain);
+    }
+
     public static function createConfig($domain, $port, $stream = false, $ssl = false)
     {
         if (!preg_match('/^[a-zA-Z0-9.-]+$/', $domain))
@@ -72,8 +77,10 @@ server {
             flush();
         }
 
-        System::exec("sudo cp {$tmp} {$availablePath}");
-        System::exec("sudo ln -sf {$availablePath} " . NGINX_SITES_ENABLED . "/{$domain}");
+        System::exec("sudo cp " . escapeshellarg($tmp) . ' ' . escapeshellarg($availablePath), $output, $status);
+        if ($status !== 0) throw new Exception('Could not install Nginx configuration');
+        System::exec("sudo ln -sf " . escapeshellarg($availablePath) . ' ' . escapeshellarg(NGINX_SITES_ENABLED . "/{$domain}"), $output, $status);
+        if ($status !== 0) throw new Exception('Could not enable Nginx configuration');
 
         // Cleanup potential certbot leftovers
         System::exec("sudo rm -f " . NGINX_SITES_ENABLED . "/{$domain}-le-ssl.conf");
@@ -82,9 +89,12 @@ server {
         if ($stream) {
             echo "Verifying configuration and reloading Nginx...\n";
             flush();
-            System::streamExec("sudo /usr/sbin/nginx -t && sudo /usr/sbin/nginx -s reload");
+            if (System::streamExec("sudo /usr/sbin/nginx -t && sudo /usr/sbin/nginx -s reload") !== 0) {
+                throw new Exception('Nginx validation or reload failed');
+            }
         } else {
-            System::exec("sudo /usr/sbin/nginx -t && sudo /usr/sbin/nginx -s reload");
+            System::exec("sudo /usr/sbin/nginx -t && sudo /usr/sbin/nginx -s reload", $output, $status);
+            if ($status !== 0) throw new Exception('Nginx validation or reload failed');
         }
         unlink($tmp);
 
@@ -115,7 +125,7 @@ server {
             echo "---------------------------------------------------\n";
             flush();
 
-            System::streamExec($cmd);
+            if (System::streamExec($cmd) !== 0) throw new Exception('Certbot could not issue the certificate. Confirm DNS points to this VPS and try again');
         } else {
             $output = [];
             $returnVar = 0;
@@ -157,10 +167,10 @@ server {
 
         $output = [];
         $ret = 0;
-        System::exec("sudo cat {$path}", $output, $ret);
+        System::exec("sudo /usr/bin/cat " . escapeshellarg($path), $output, $ret);
 
         if ($ret !== 0) {
-            return ""; // File probably doesn't exist
+            throw new Exception('Nginx configuration could not be read');
         }
 
         return implode("\n", $output);

@@ -22,17 +22,34 @@ class System
     /**
      * Stream command output to browser
      */
-    public static function streamExec($command)
+    public static function streamExec($command, $logFile = null)
     {
-        // Disable output buffering
-        while (@ob_end_flush())
-            ;
-        $proc = popen("$command 2>&1", 'r');
-        while (!feof($proc)) {
-            echo fread($proc, 4096);
+        while (@ob_end_flush()) ;
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['redirect', 1]
+        ];
+        $process = proc_open($command, $descriptors, $pipes);
+        if (!is_resource($process)) {
+            throw new Exception('Could not start command');
+        }
+
+        fclose($pipes[0]);
+        $log = $logFile ? @fopen($logFile, 'ab') : null;
+        while (!feof($pipes[1])) {
+            $chunk = fread($pipes[1], 8192);
+            if ($chunk === '' || $chunk === false) {
+                usleep(10000);
+                continue;
+            }
+            echo $chunk;
+            if ($log) fwrite($log, $chunk);
             flush();
         }
-        pclose($proc);
+        fclose($pipes[1]);
+        if ($log) fclose($log);
+        return proc_close($process);
     }
 
     public static function createService($appName, $binaryPath, $envVars = [], $port = 8080)
@@ -43,6 +60,8 @@ class System
 
         $serviceFile = "/etc/systemd/system/go-{$appName}.service";
 
+        // PORT is the standard contract between the panel and managed apps.
+        $envVars = array_merge(['PORT' => (string) $port], $envVars);
         $envString = "";
         foreach ($envVars as $k => $v) {
             $envString .= "Environment=\"{$k}={$v}\"\n";
@@ -53,11 +72,17 @@ Description=Go App {$appName}
 After=network.target
 
 [Service]
-User=root
-Group=root
+User=www-data
+Group=www-data
 WorkingDirectory=" . dirname($binaryPath) . "
 ExecStart={$binaryPath}
 Restart=always
+NoNewPrivileges=true
+PrivateTmp=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+SocketBindDeny=tcp:1-1000
+SocketBindDeny=udp:1-1000
 {$envString}
 
 [Install]
@@ -105,10 +130,11 @@ WantedBy=multi-user.target
     {
         if (!preg_match(self::VALID_NAME_REGEX, $appName))
             throw new Exception("Invalid app name.");
-        self::stopService($appName);
+        self::exec("sudo systemctl stop go-{$appName}");
         self::exec("sudo systemctl disable go-{$appName}");
         self::exec("sudo rm /etc/systemd/system/go-{$appName}.service");
         self::exec("sudo systemctl daemon-reload");
+        self::exec("sudo systemctl reset-failed go-{$appName}");
     }
 
     public static function getServiceStatus($appName)

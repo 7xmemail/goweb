@@ -8,11 +8,15 @@ const App = {
     state: {
         user: null,
         currentApp: null,
-        currentPath: ''
+        currentPath: '',
+        codeEditor: null,
+        editorDirty: false,
+        editorLoading: false
     },
 
     async init() {
         this.refreshIcons();
+        this.initializeCodeEditor();
         await this.checkAuth();
         this.setupNavigation();
         this.setupModals();
@@ -21,6 +25,39 @@ const App = {
 
     refreshIcons() {
         if (window.lucide) window.lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
+    },
+
+    escapeHtml(value) {
+        return String(value).replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+    },
+
+    notify(message, type = 'info', title = '') {
+        const region = document.getElementById('toastRegion');
+        if (!region) return;
+        const labels = { success: 'Success', error: 'Something went wrong', warning: 'Attention', info: 'Information' };
+        const icons = { success: 'circle-check', error: 'circle-x', warning: 'triangle-alert', info: 'info' };
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        const icon = document.createElement('span');
+        icon.className = 'toast-icon';
+        icon.innerHTML = `<i data-lucide="${icons[type] || icons.info}"></i>`;
+        const copy = document.createElement('div');
+        copy.className = 'toast-copy';
+        const heading = document.createElement('strong');
+        heading.textContent = title || labels[type] || labels.info;
+        const body = document.createElement('span');
+        body.textContent = String(message || '');
+        copy.append(heading, body);
+        const close = document.createElement('button');
+        close.className = 'toast-close'; close.type = 'button'; close.setAttribute('aria-label', 'Dismiss notification');
+        close.innerHTML = '<i data-lucide="x"></i>';
+        const dismiss = () => { toast.classList.add('leaving'); window.setTimeout(() => toast.remove(), 180); };
+        close.onclick = dismiss;
+        toast.append(icon, copy, close);
+        region.prepend(toast);
+        this.refreshIcons();
+        window.setTimeout(dismiss, type === 'error' ? 7000 : 4500);
     },
 
     setPage(title, description) {
@@ -64,11 +101,40 @@ const App = {
         });
     },
 
-    loadSettings() {
+    async loadSettings() {
         const area = document.getElementById('contentArea');
         this.setPage('Settings', 'Manage account access and panel preferences.');
+        let panelSettings = { app_base_domain: '', ssl_email: '' };
+        try {
+            const response = await fetch('api/settings.php');
+            const payload = await response.json();
+            if (response.ok && payload.settings) panelSettings = payload.settings;
+        } catch (error) {
+            this.notify('Could not load domain automation settings.', 'error');
+        }
         area.innerHTML = `
             <div class="settings-layout">
+                <div class="panel">
+                    <div class="panel-heading">
+                        <span class="stat-icon"><i data-lucide="wand-sparkles"></i></span>
+                        <div><h3>Automatic app subdomains</h3><p>Used by the one-click random subdomain button.</p></div>
+                    </div>
+                    <div class="panel-body">
+                    <form id="domainSettingsForm">
+                        <div class="form-group">
+                            <label>App base domain</label>
+                            <input type="text" name="app_base_domain" required value="${this.escapeHtml(panelSettings.app_base_domain || '')}" placeholder="apps.example.com">
+                            <small class="field-hint">Your Hostinger wildcard record should be *.apps for this example.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>SSL notification email</label>
+                            <input type="email" name="ssl_email" value="${this.escapeHtml(panelSettings.ssl_email || '')}" placeholder="admin@example.com">
+                            <small class="field-hint">When provided, one-click assignment also enables HTTPS.</small>
+                        </div>
+                        <button type="submit" class="btn primary"><i data-lucide="save"></i>Save domain settings</button>
+                    </form>
+                    </div>
+                </div>
                 <div class="panel">
                     <div class="panel-heading">
                         <span class="stat-icon"><i data-lucide="key-round"></i></span>
@@ -88,6 +154,25 @@ const App = {
         `;
         this.refreshIcons();
 
+        document.getElementById('domainSettingsForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const button = e.target.querySelector('button');
+            button.disabled = true;
+            try {
+                const data = Object.fromEntries(new FormData(e.target).entries());
+                const response = await fetch('api/settings.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.success) throw new Error(payload.error || 'Settings could not be saved');
+                this.notify(`Random applications will use *.${payload.settings.app_base_domain}.`, 'success', 'Domain automation configured');
+            } catch (error) {
+                this.notify(error.message, 'error', 'Settings not saved');
+            } finally {
+                button.disabled = false;
+            }
+        };
+
         document.getElementById('changePasswordForm').onsubmit = async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
@@ -106,13 +191,13 @@ const App = {
                 });
                 const json = await res.json();
                 if (json.success) {
-                    alert('Password updated successfully');
+                    this.notify('Your panel password has been updated.', 'success');
                     e.target.reset();
                 } else {
-                    alert('Error: ' + json.error);
+                    this.notify(json.error || 'Password could not be updated.', 'error');
                 }
             } catch (err) {
-                alert('Connection error');
+                this.notify('Could not connect to the server.', 'error');
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -125,7 +210,7 @@ const App = {
         const btn = document.getElementById('newAppBtn');
         const close = modal.querySelector('.close-modal');
 
-        btn.onclick = () => modal.classList.add('active');
+        btn.onclick = () => this.openNewAppModal();
         close.onclick = () => modal.classList.remove('active');
 
         // Form Type Switch
@@ -161,40 +246,19 @@ const App = {
                 if (json.success) {
                     modal.classList.remove('active');
                     this.loadApps();
+                    this.notify('Application created. Add your Go source, then use Restart to build and deploy it.', 'success', 'Application ready');
                 } else {
-                    alert('Error: ' + json.error);
+                    this.notify(json.error || 'Application could not be created.', 'error');
                 }
             } catch (err) {
-                alert('Connection error');
+                this.notify('Could not connect to the server.', 'error');
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
             }
         };
 
-        // Editor Save
-        document.getElementById('saveFileBtn').onclick = async () => {
-            if (!this.state.currentEditorFile) return;
-            const content = document.getElementById('codeEditor').value;
-            try {
-                const res = await fetch('api/files.php?action=save&app=' + this.state.currentApp.name, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        file: this.state.currentEditorFile,
-                        content: content
-                    })
-                });
-                const json = await res.json();
-                if (json.success) {
-                    document.getElementById('editorModal').classList.remove('active');
-                } else {
-                    alert('Save failed: ' + json.error);
-                }
-            } catch (err) {
-                alert('Error saving file');
-            }
-        };
+        document.getElementById('saveFileBtn').onclick = () => this.saveCurrentFile();
 
         qsa('.close-modal').forEach(el => {
             el.addEventListener('click', () => {
@@ -202,11 +266,18 @@ const App = {
             });
         });
         qsa('.modal').forEach(el => el.addEventListener('click', (event) => {
-            if (event.target === el) el.classList.remove('active');
+            if (event.target !== el) return;
+            if (el.id === 'editorModal') this.closeCodeEditor();
+            else el.classList.remove('active');
         }));
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
+                if (event.target.closest && event.target.closest('.ace_search')) return;
                 document.body.classList.remove('sidebar-open');
+                if (document.getElementById('editorModal').classList.contains('active')) {
+                    this.closeCodeEditor();
+                    return;
+                }
                 qsa('.modal.active').forEach(el => el.classList.remove('active'));
             }
         });
@@ -214,7 +285,181 @@ const App = {
         // Specific close for editor
         const closeEditBtn = document.getElementById('closeEditorBtn');
         if (closeEditBtn) {
-            closeEditBtn.onclick = () => document.getElementById('editorModal').classList.remove('active');
+            closeEditBtn.onclick = () => this.closeCodeEditor();
+        }
+    },
+
+    initializeCodeEditor() {
+        if (!window.ace) return;
+
+        window.ace.config.set('basePath', 'assets/vendor/ace');
+        const editor = window.ace.edit('codeEditor');
+        editor.setTheme('ace/theme/one_dark');
+        editor.setOptions({
+            mode: 'ace/mode/text',
+            fontSize: '13px',
+            fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
+            showPrintMargin: false,
+            showGutter: true,
+            displayIndentGuides: true,
+            highlightActiveLine: true,
+            highlightSelectedWord: true,
+            behavioursEnabled: true,
+            wrapBehavioursEnabled: true,
+            animatedScroll: false,
+            scrollPastEnd: 0.35
+        });
+        editor.session.setUseWorker(false);
+        editor.session.setTabSize(4);
+        editor.session.setUseSoftTabs(true);
+        editor.renderer.setScrollMargin(8, 8);
+
+        editor.commands.addCommand({
+            name: 'saveFile',
+            bindKey: { win: 'Ctrl-S', mac: 'Command-S' },
+            exec: () => this.saveCurrentFile()
+        });
+
+        editor.session.on('change', () => {
+            if (this.state.editorLoading) return;
+            this.state.editorDirty = true;
+            document.getElementById('editorUnsaved').classList.add('active');
+        });
+
+        const updatePosition = () => {
+            const cursor = editor.getCursorPosition();
+            const selected = editor.getSelectedText().length;
+            document.getElementById('editorCursorPosition').textContent = `Ln ${cursor.row + 1}, Col ${cursor.column + 1}`;
+            document.getElementById('editorSelectionStatus').textContent = selected ? `${selected} selected` : '';
+        };
+        editor.selection.on('changeCursor', updatePosition);
+        editor.selection.on('changeSelection', updatePosition);
+
+        document.getElementById('editorFindBtn').onclick = () => {
+            editor.focus();
+            editor.execCommand('find');
+        };
+        document.getElementById('editorReplaceBtn').onclick = () => {
+            editor.focus();
+            editor.execCommand('replace');
+        };
+        document.getElementById('editorWrapBtn').onclick = (event) => {
+            const enabled = !editor.session.getUseWrapMode();
+            editor.session.setUseWrapMode(enabled);
+            event.currentTarget.classList.toggle('active', enabled);
+            event.currentTarget.title = enabled ? 'Disable word wrap' : 'Enable word wrap';
+        };
+
+        this.state.codeEditor = editor;
+        updatePosition();
+    },
+
+    getEditorLanguage(path) {
+        const filename = path.split('/').pop().toLowerCase();
+        const extension = filename.includes('.') ? filename.split('.').pop() : '';
+        if (filename === 'dockerfile') return ['dockerfile', 'Dockerfile'];
+        if (filename === 'makefile') return ['sh', 'Makefile'];
+        const modes = {
+            go: ['golang', 'Go'], js: ['javascript', 'JavaScript'], mjs: ['javascript', 'JavaScript'],
+            ts: ['typescript', 'TypeScript'], tsx: ['typescript', 'TypeScript'],
+            json: ['json', 'JSON'], html: ['html', 'HTML'], htm: ['html', 'HTML'], css: ['css', 'CSS'],
+            php: ['php', 'PHP'], sh: ['sh', 'Shell'], bash: ['sh', 'Shell'], env: ['sh', 'Environment'],
+            md: ['markdown', 'Markdown'], markdown: ['markdown', 'Markdown'], yaml: ['yaml', 'YAML'], yml: ['yaml', 'YAML'],
+            xml: ['xml', 'XML'], svg: ['xml', 'SVG'], sql: ['sql', 'SQL'], py: ['python', 'Python'],
+            rs: ['rust', 'Rust'], c: ['c_cpp', 'C'], h: ['c_cpp', 'C header'], cpp: ['c_cpp', 'C++'],
+            txt: ['text', 'Plain text']
+        };
+        return modes[extension] || ['text', extension ? extension.toUpperCase() : 'Plain text'];
+    },
+
+    openCodeEditor(path, content) {
+        if (!this.state.codeEditor) {
+            this.notify('The code editor could not be loaded.', 'error');
+            return;
+        }
+
+        const [mode, label] = this.getEditorLanguage(path);
+        this.state.currentEditorFile = path;
+        this.state.editorLoading = true;
+        this.state.codeEditor.session.setMode(`ace/mode/${mode}`);
+        this.state.codeEditor.setValue(content || '', -1);
+        this.state.codeEditor.session.getUndoManager().reset();
+        this.state.codeEditor.clearSelection();
+        this.state.editorLoading = false;
+        this.state.editorDirty = false;
+
+        document.getElementById('editorFileName').textContent = path;
+        document.getElementById('editorLanguage').textContent = label;
+        document.getElementById('editorModeStatus').textContent = label;
+        document.getElementById('editorUnsaved').classList.remove('active');
+        document.getElementById('editorModal').classList.add('active');
+
+        requestAnimationFrame(() => {
+            this.state.codeEditor.resize(true);
+            this.state.codeEditor.focus();
+        });
+    },
+
+    async saveCurrentFile() {
+        if (!this.state.currentEditorFile || !this.state.codeEditor) return;
+
+        const button = document.getElementById('saveFileBtn');
+        const original = button.innerHTML;
+        button.disabled = true;
+        button.textContent = 'Saving…';
+
+        try {
+            const res = await fetch('api/files.php?action=save&app=' + encodeURIComponent(this.state.currentApp.name), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    file: this.state.currentEditorFile,
+                    content: this.state.codeEditor.getValue()
+                })
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'Save failed');
+
+            this.state.editorDirty = false;
+            document.getElementById('editorUnsaved').classList.remove('active');
+            button.textContent = 'Saved';
+            this.notify(`${this.state.currentEditorFile} was saved successfully.`, 'success', 'Changes saved');
+            window.setTimeout(() => { button.innerHTML = original; this.refreshIcons(); }, 900);
+        } catch (error) {
+            this.notify(error.message, 'error', 'Save failed');
+            button.innerHTML = original;
+            this.refreshIcons();
+        } finally {
+            button.disabled = false;
+        }
+    },
+
+    closeCodeEditor() {
+        if (this.state.editorDirty && !confirm('Close the editor and discard unsaved changes?')) return;
+        this.state.editorDirty = false;
+        document.getElementById('editorUnsaved').classList.remove('active');
+        document.getElementById('editorModal').classList.remove('active');
+    },
+
+    async openNewAppModal() {
+        const modal = document.getElementById('appModal');
+        const portInput = modal.querySelector('[name="port"]');
+        const hint = document.getElementById('portAvailabilityHint');
+
+        modal.classList.add('active');
+        portInput.disabled = true;
+        hint.textContent = 'Finding the next available port…';
+
+        try {
+            const res = await fetch('api/apps.php?action=next_port');
+            const data = await res.json();
+            if (!res.ok || !data.port) throw new Error(data.error || 'No port available');
+            portInput.value = data.port;
+            hint.textContent = `Port ${data.port} is the next available application port.`;
+        } catch (error) {
+            hint.textContent = error.message || 'Could not determine an available port.';
+        } finally {
+            portInput.disabled = false;
         }
     },
 
@@ -269,13 +514,39 @@ const App = {
 
         area.innerHTML = `
             <div class="section-header"><div><h2>All applications</h2><p>${apps.length} service${apps.length === 1 ? '' : 's'} configured on this server.</p></div></div>
-            <div class="app-grid">
-                ${this.renderAppCards(apps)}
+            <div class="list-toolbar">
+                <label class="search-field"><i data-lucide="search"></i><input id="appNameFilter" type="search" placeholder="Filter applications by name" aria-label="Filter applications by name"></label>
+                <select id="appSort" class="sort-select" aria-label="Sort applications">
+                    <option value="port-asc">Port: low to high</option>
+                    <option value="name-asc">Name: A to Z</option>
+                    <option value="name-desc">Name: Z to A</option>
+                </select>
+                <span class="result-count" id="appResultCount"></span>
             </div>
+            <div class="app-grid" id="applicationsGrid"></div>
         `;
 
-        this.refreshIcons();
-        this.bindAppActions();
+        const renderFilteredApps = () => {
+            const query = document.getElementById('appNameFilter').value.trim().toLocaleLowerCase();
+            const sort = document.getElementById('appSort').value;
+            const visibleApps = apps
+                .filter(app => app.name.toLocaleLowerCase().includes(query))
+                .sort((left, right) => {
+                    if (sort === 'name-asc') return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+                    if (sort === 'name-desc') return right.name.localeCompare(left.name, undefined, { sensitivity: 'base' });
+                    return Number(left.port) - Number(right.port) || left.name.localeCompare(right.name);
+                });
+
+            document.getElementById('applicationsGrid').innerHTML = visibleApps.length
+                ? this.renderAppCards(visibleApps)
+                : `<div class="empty-state"><span class="empty-icon"><i data-lucide="search-x"></i></span><h3>No matching applications</h3><p>Try a different name or clear the filter.</p></div>`;
+            document.getElementById('appResultCount').textContent = `${visibleApps.length} of ${apps.length}`;
+            this.refreshIcons();
+        };
+
+        document.getElementById('appNameFilter').addEventListener('input', renderFilteredApps);
+        document.getElementById('appSort').addEventListener('change', renderFilteredApps);
+        renderFilteredApps();
     },
 
     renderAppCards(apps) {
@@ -285,8 +556,9 @@ const App = {
             <div class="app-card" data-name="${app.name}">
                 <div class="app-card-body"><div class="app-header">
                     <div class="app-title"><span class="app-title-icon"><i data-lucide="box"></i></span><span class="app-title-text"><strong>${app.name}</strong><small>Go application</small></span></div>
-                    <span class="status-badge ${app.status === 'active' ? 'status-active' : 'status-inactive'}">
-                        ${app.status || 'unknown'}
+                    <span class="app-header-right">
+                        <span class="status-badge ${app.status === 'active' ? 'status-active' : 'status-inactive'}">${app.status || 'unknown'}</span>
+                        ${app.domain ? `<a class="card-visit-link" href="${app.email ? 'https' : 'http'}://${app.domain}" target="_blank" rel="noopener noreferrer" title="Visit ${app.domain}" aria-label="Visit ${app.domain}"><i data-lucide="external-link"></i></a>` : ''}
                     </span>
                 </div>
                 <dl class="app-metadata"><dt>Port</dt><dd>${app.port || '8080'}</dd><dt>Path</dt><dd title="${app.path}">${app.path}</dd>${app.domain ? `<dt>Domain</dt><dd>${app.domain}</dd>` : ''}</dl></div>
@@ -306,7 +578,7 @@ const App = {
     },
 
     async openNginxEditor(domain) {
-        if (!domain) return alert('No domain configured for this app.');
+        if (!domain) return this.notify('Configure a domain for this application first.', 'warning');
 
         document.getElementById('nginxModal').classList.add('active');
         document.getElementById('nginxDomainDisplay').textContent = domain;
@@ -340,13 +612,13 @@ const App = {
                 });
                 const json = await res.json();
                 if (json.success) {
-                    alert('Nginx configuration saved and reloaded!');
+                    this.notify('Nginx configuration was saved and reloaded.', 'success');
                     document.getElementById('nginxModal').classList.remove('active');
                 } else {
-                    alert('Error: ' + json.error);
+                    this.notify(json.error || 'Nginx configuration could not be saved.', 'error');
                 }
             } catch (e) {
-                alert('Connection error');
+                this.notify('Could not connect to the server.', 'error');
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -376,6 +648,22 @@ const App = {
                 if (app.email) document.getElementById('sslForm').querySelector('[name="email"]').value = app.email;
             }
         }
+
+        const randomButton = document.getElementById('randomDomainBtn');
+        randomButton.onclick = async () => {
+            randomButton.disabled = true;
+            const result = await this.runStreamCommand(
+                'Assigning random subdomain',
+                'api/domains.php?action=random&stream=1',
+                { app: appName, port }
+            );
+            randomButton.disabled = false;
+            if (result?.success) {
+                const match = result.output.match(/Public URL:\s+(https?:\/\/[^\s]+)/);
+                if (match) this.notify(match[1], 'success', 'Random subdomain assigned');
+                await this.loadApps();
+            }
+        };
 
         form.onsubmit = async (e) => {
             e.preventDefault();
@@ -414,19 +702,32 @@ const App = {
                 body: JSON.stringify(data)
             });
 
+            if (!res.ok || !res.body) throw new Error(`Server returned ${res.status}`);
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
+            let completeOutput = '';
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 const text = decoder.decode(value);
+                completeOutput += text;
                 termOut.textContent += text;
                 termOut.scrollTop = termOut.scrollHeight;
             }
-            termOut.textContent += '\n\n[Done]';
+            const failed = /\[(?:DEPLOYMENT|DOMAIN) FAILED\]/.test(completeOutput);
+            if (failed) {
+                termOut.textContent += '\n\n[Failed — review the detailed output above]';
+                this.notify('The operation failed. Review the detailed output above.', 'error', title);
+            } else {
+                termOut.textContent += '\n\n[Completed]';
+                this.notify('The operation completed successfully.', 'success', title);
+            }
+            return { success: !failed, output: completeOutput };
         } catch (e) {
             termOut.textContent += '\n\n[Error: ' + e + ']';
+            this.notify(e.message || 'The operation could not be completed.', 'error', title);
+            return { success: false, output: termOut.textContent };
         }
     },
 
@@ -450,7 +751,7 @@ const App = {
     },
 
     async controlApp(name, action) {
-        if (action === 'delete' && !confirm('Are you sure you want to delete ' + name + '?')) return;
+        if (action === 'delete' && !confirm(`Permanently delete ${name}? This removes its service, files, caches, proxy configuration, certificate, and releases its port.`)) return;
 
         if (action === 'restart') {
             // Use streaming for restart to show build logs
@@ -470,11 +771,15 @@ const App = {
                 const currentTab = qs('.nav-item.active').dataset.tab;
                 if (currentTab === 'dashboard') this.loadDashboard();
                 else this.loadApps();
+                const message = action === 'delete'
+                    ? `${name} was completely deleted${json.deleted?.port ? ` and port ${json.deleted.port} is available again` : ''}.`
+                    : `${name} was ${action === 'stop' ? 'stopped' : 'started'} successfully.`;
+                this.notify(message, 'success');
             } else {
-                alert('Action failed: ' + json.error);
+                this.notify(json.error || 'The requested action failed.', 'error');
             }
         } catch (e) {
-            alert('Error performing action');
+            this.notify(e.message || 'Could not perform the requested action.', 'error');
         }
     },
 
@@ -568,16 +873,13 @@ const App = {
     },
 
     async editFile(path) {
-        this.state.currentEditorFile = path;
         try {
             const res = await fetch(`api/files.php?app=${this.state.currentApp.name}&action=read&file=${path}`);
             const data = await res.json();
-
-            document.getElementById('editorFileName').textContent = path;
-            document.getElementById('codeEditor').value = data.content;
-            document.getElementById('editorModal').classList.add('active');
+            if (!res.ok) throw new Error(data.error || 'Could not read file');
+            this.openCodeEditor(path, data.content);
         } catch (e) {
-            alert('Failed to read file');
+            this.notify(e.message, 'error', 'Could not read file');
         }
     },
 
@@ -592,10 +894,11 @@ const App = {
                 // Refresh current dir
                 const parent = path.split('/').slice(0, -1).join('/');
                 this.loadFileBrowser(parent);
+                this.notify(`${path} was deleted.`, 'success');
             } else {
-                alert('Delete failed');
+                this.notify(json.error || 'The file could not be deleted.', 'error');
             }
-        } catch (e) { alert('Error deleting'); }
+        } catch (e) { this.notify(e.message || 'The file could not be deleted.', 'error'); }
     },
 
     async renameFile(path, oldName) {
@@ -613,10 +916,11 @@ const App = {
             const json = await res.json();
             if (json.success) {
                 this.loadFileBrowser(dir);
+                this.notify(`${oldName} was renamed to ${newName}.`, 'success');
             } else {
-                alert('Rename failed: ' + (json.error || 'Unknown'));
+                this.notify(json.error || 'The file could not be renamed.', 'error');
             }
-        } catch (e) { alert('Error renaming'); }
+        } catch (e) { this.notify(e.message || 'The file could not be renamed.', 'error'); }
     },
 
     editAppModal(name, port) {
@@ -643,11 +947,12 @@ const App = {
                 if (json.success) {
                     modal.classList.remove('active');
                     this.loadApps();
+                    this.notify(`${name} was updated successfully.`, 'success');
                 } else {
-                    alert('Error: ' + json.error);
+                    this.notify(json.error || 'Application could not be updated.', 'error');
                 }
             } catch (err) {
-                alert('Connection error');
+                this.notify('Could not connect to the server.', 'error');
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -676,10 +981,11 @@ const App = {
                 const json = await res.json();
                 if (json.success) {
                     this.loadFileBrowser(path); // Refresh
+                    this.notify(`${file.name} was uploaded.`, 'success');
                 } else {
-                    alert('Upload failed');
+                    this.notify(json.error || 'Upload failed.', 'error');
                 }
-            } catch (e) { alert('Error uploading'); }
+            } catch (e) { this.notify(e.message || 'Upload failed.', 'error'); }
         };
         input.click();
     },
@@ -687,7 +993,7 @@ const App = {
     newFileModal(path) {
         const name = prompt("Enter file name:");
         if (!name) return;
-        this.editFile((path ? path + '/' : '') + name); // Open editor for new file
+        this.openCodeEditor((path ? path + '/' : '') + name, '');
     },
 
     newDirModal(path) {
@@ -704,9 +1010,11 @@ const App = {
                 body: JSON.stringify({ dir: fullPath })
             });
             const json = await res.json();
-            if (json.success) this.loadFileBrowser(path);
-            else alert('Failed to create folder');
-        } catch (e) { alert('Error'); }
+            if (json.success) {
+                this.loadFileBrowser(path);
+                this.notify(`${name} was created.`, 'success');
+            } else this.notify(json.error || 'Failed to create folder.', 'error');
+        } catch (e) { this.notify(e.message || 'Failed to create folder.', 'error'); }
     }
 };
 

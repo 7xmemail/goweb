@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b1020">
     <title>goWeb — Server Control Panel</title>
-    <link rel="stylesheet" href="assets/css/style.css?v=pro1">
+    <link rel="stylesheet" href="assets/css/style.css?v=editor1">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
@@ -105,7 +105,8 @@
                     </div>
                     <div class="form-group">
                         <label>Port</label>
-                        <input type="number" name="port" value="8080">
+                        <input type="number" name="port" value="1001" min="1001" max="65535" required>
+                        <small class="field-hint" id="portAvailabilityHint">The next available port is selected automatically.</small>
                     </div>
                     <button type="submit" class="btn primary full-width"><i data-lucide="rocket"></i>Deploy application</button>
                 </form>
@@ -136,7 +137,7 @@
                     </div>
                     <div class="form-group">
                         <label>Port</label>
-                        <input type="number" name="port" required>
+                        <input type="number" name="port" min="1001" max="65535" required>
                     </div>
                     <button type="submit" class="btn primary full-width">Update App</button>
                 </form>
@@ -152,6 +153,13 @@
                 <button class="close-modal" aria-label="Close"><i data-lucide="x"></i></button>
             </div>
             <div class="modal-body">
+                <div class="quick-domain-card">
+                    <span class="quick-domain-icon"><i data-lucide="wand-sparkles"></i></span>
+                    <div><strong>Instant random subdomain</strong><p>Generate a unique four-character address and connect this application automatically.</p></div>
+                    <button type="button" class="btn primary full-width" id="randomDomainBtn"><i data-lucide="sparkles"></i>Assign random subdomain</button>
+                </div>
+
+                <div class="section-divider"><span>or use a custom domain</span></div>
                 <form id="domainForm">
                     <input type="hidden" name="port" id="domainAppPort" value="8080">
                     <div class="form-group">
@@ -221,21 +229,33 @@
 
     <!-- File Editor Modal -->
     <div class="modal full-screen" id="editorModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="editorFileName">editing...</h3>
+        <div class="modal-content editor-window">
+            <div class="modal-header editor-header">
+                <div class="editor-file-identity">
+                    <span class="editor-file-icon"><i data-lucide="file-code-2"></i></span>
+                    <div><h3 id="editorFileName">editing...</h3><span id="editorLanguage">Plain text</span></div>
+                    <span class="unsaved-indicator" id="editorUnsaved" title="Unsaved changes"></span>
+                </div>
                 <div class="editor-actions">
+                    <button class="btn secondary editor-tool" id="editorFindBtn" title="Find (Ctrl/⌘ + F)"><i data-lucide="search"></i><span>Find</span></button>
+                    <button class="btn secondary editor-tool" id="editorReplaceBtn" title="Replace (Ctrl/⌘ + H)"><i data-lucide="replace"></i><span>Replace</span></button>
+                    <button class="icon-btn" id="editorWrapBtn" title="Toggle word wrap" aria-label="Toggle word wrap"><i data-lucide="wrap-text"></i></button>
                     <button class="btn secondary" id="closeEditorBtn">Close</button>
-                    <button class="btn primary" id="saveFileBtn">Save Changes</button>
+                    <button class="btn primary" id="saveFileBtn"><i data-lucide="save"></i><span>Save changes</span></button>
                 </div>
             </div>
-            <div class="modal-body no-padding">
-                <textarea id="codeEditor" spellcheck="false"></textarea>
+            <div class="modal-body no-padding editor-body">
+                <div id="codeEditor" aria-label="Code editor"></div>
             </div>
+            <div class="editor-statusbar"><span id="editorCursorPosition">Ln 1, Col 1</span><span id="editorSelectionStatus"></span><span class="status-spacer"></span><span>Spaces: 4</span><span>UTF-8</span><span id="editorModeStatus">Text</span></div>
         </div>
     </div>
 
-    <script src="assets/js/app.js?v=pro1"></script>
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="false"></div>
+
+    <script src="assets/vendor/ace/ace.js?v=1.44.0"></script>
+    <script src="assets/vendor/ace/ext-searchbox.js?v=1.44.0"></script>
+    <script src="assets/js/app.js?v=visit-link2"></script>
 </body>
 
 </html>

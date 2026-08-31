@@ -13,12 +13,20 @@ if ($method === 'GET' && $action === 'list') {
     jsonResponse(['apps' => $manager->listApps()]);
 }
 
+if ($method === 'GET' && $action === 'next_port') {
+    try {
+        jsonResponse(['port' => $manager->getNextAvailablePort()]);
+    } catch (Exception $e) {
+        jsonResponse(['error' => $e->getMessage()], 409);
+    }
+}
+
 if ($method === 'POST' && $action === 'create') {
     // Handling multipart/form-data for uploads
     $name = $_POST['name'] ?? '';
     $createEmpty = ($_POST['create_type'] ?? '') === 'empty'; // Check for explicit empty type
     $envVars = json_decode($_POST['env_vars'] ?? '{}', true);
-    $port = $_POST['port'] ?? 8080;
+    $port = $_POST['port'] ?? $manager->getNextAvailablePort();
 
     $file = isset($_FILES['binary']) && $_FILES['binary']['error'] === UPLOAD_ERR_OK ? $_FILES['binary'] : null;
 
@@ -73,11 +81,11 @@ if ($method === 'POST' && $action === 'control') {
                 $manager->restartApp($appName);
             }
         } elseif ($command === 'delete')
-            $manager->deleteApp($appName);
+            $deleted = $manager->deleteApp($appName);
         else
             throw new Exception("Invalid command");
 
-        jsonResponse(['success' => true]);
+        jsonResponse(['success' => true, 'deleted' => $deleted ?? null]);
     } catch (Exception $e) {
         jsonResponse(['error' => $e->getMessage()], 500);
     }

@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'change_password') {
     $data = json_decode(file_get_contents('php://input'), true);
     $newPassword = $data['new_password'] ?? '';
 
-    if (strlen($newPassword) < 2) {
-        jsonResponse(['error' => 'Password too short'], 400);
+    if (strlen($newPassword) < 8) {
+        jsonResponse(['error' => 'Password must be at least 8 characters'], 400);
     }
 
     $username = $_SESSION['user'];

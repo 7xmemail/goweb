@@ -8,6 +8,10 @@ class Auth
     public static function init()
     {
         if (session_status() === PHP_SESSION_NONE) {
+            ini_set('session.use_strict_mode', '1');
+            ini_set('session.cookie_httponly', '1');
+            ini_set('session.cookie_samesite', 'Strict');
+            ini_set('session.cookie_secure', (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? '1' : '0');
             session_start();
         }
     }
@@ -28,6 +32,7 @@ class Auth
         $users = json_decode(file_get_contents(self::$dbFile), true);
 
         if (isset($users[$username]) && password_verify($password, $users[$username])) {
+            session_regenerate_id(true);
             $_SESSION['user'] = $username;
             return true;
         }
